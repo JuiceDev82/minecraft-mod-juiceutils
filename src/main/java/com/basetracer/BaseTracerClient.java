@@ -1,0 +1,169 @@
+package com.basetracer;
+
+import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.loader.api.FabricLoader;
+
+public class BaseTracerClient implements ClientModInitializer {
+	public static final String MOD_ID = "basetracer";
+	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+	private static final int PRUNE_INTERVAL_TICKS = 20;
+	/** Often enough to follow pets around, while staying cheap with thousands of entities. */
+	private static final int ENTITY_INTERVAL_TICKS = 10;
+	/** How far past the render distance the client keeps chunks; see ClientChunkCache#calculateStorageRange. */
+	private static final int CHUNK_STORAGE_MARGIN = 3;
+	public static final BaseTracerConfig CONFIG = BaseTracerConfig.load(FabricLoader.getInstance().getConfigDir());
+	public static final BaseTracker TRACKER = new BaseTracker(CONFIG);
+	public static final BaseTracerRenderer RENDERER = new BaseTracerRenderer(TRACKER, CONFIG);
+	public static final ModuleSplash SPLASH = new ModuleSplash();
+	public static final MobWarning MOB_WARNING = new MobWarning();
+	public static final DroppedItems DROPPED_ITEMS = new DroppedItems();
+
+	public static void rescanLoadedChunks() {
+		Minecraft client = Minecraft.getInstance();
+
+		if (client.level != null && client.player != null) {
+			TRACKER.rescan(client.level, client.player.chunkPosition(), client.options.getEffectiveRenderDistance() + CHUNK_STORAGE_MARGIN);
+		}
+	}
+
+	/** For screens to call on their way out, so a rule being edited doesn't rescan on every change. */
+	public static void applyRuleChanges() {
+		if (CONFIG.consumeRulesChanged()) {
+			CONFIG.save();
+			rescanLoadedChunks();
+		}
+	}
+
+	/** Whether the X-Ray key was down at the last tick, for {@link #sharedKeyPressed}. */
+	private static boolean xrayKeyWasDown;
+
+	/**
+	 * Whether a key was just pressed, even when a vanilla binding shares it. The game only passes a shared key to
+	 * one of its bindings, and X, X-Ray's default, is also vanilla's Load Hotbar Activator. So a keyboard key is also
+	 * read directly, while no screen is open so that typing doesn't count.
+	 */
+	private static boolean sharedKeyPressed(Minecraft client, KeyMapping mapping) {
+		boolean clicked = false;
+
+		while (mapping.consumeClick()) {
+			clicked = true;
+		}
+
+		InputConstants.Key key = KeyMappingHelper.getBoundKeyOf(mapping);
+		boolean down = key.getType() == InputConstants.Type.KEYSYM && key.getValue() != InputConstants.UNKNOWN.getValue()
+				&& client.gui.screen() == null && InputConstants.isKeyDown(client.getWindow(), key.getValue());
+		boolean pressed = down && !xrayKeyWasDown;
+		xrayKeyWasDown = down;
+		return clicked || pressed;
+	}
+
+	@Override
+	public void onInitializeClient() {
+		ClientChunkEvents.CHUNK_LOAD.register(TRACKER::chunkLoaded);
+		ClientChunkEvents.CHUNK_UNLOAD.register(TRACKER::chunkUnloaded);
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> TRACKER.clear());
+
+		LevelExtractionEvents.END_EXTRACTION.register(RENDERER::extract);
+		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath(MOD_ID, "labels"), (graphics, deltaTracker) -> RENDERER.renderLabels(graphics));
+		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath(MOD_ID, "splash"), (graphics, deltaTracker) -> SPLASH.render(graphics));
+
+		KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(MOD_ID, "main"));
+		KeyMapping toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+				"key.basetracer.toggle",
+				InputConstants.Type.KEYSYM,
+				GLFW.GLFW_KEY_L,
+				category
+		));
+
+		KeyMapping freeLookKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+				"key.basetracer.freeLook",
+				InputConstants.Type.KEYSYM,
+				GLFW.GLFW_KEY_J,
+				category
+		));
+
+		KeyMapping xrayKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+				"key.basetracer.xray",
+				InputConstants.Type.KEYSYM,
+				GLFW.GLFW_KEY_X,
+				category
+		));
+
+		KeyMapping quickUseKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+				"key.basetracer.quickUse",
+				InputConstants.Type.MOUSE,
+				GLFW.GLFW_MOUSE_BUTTON_4,
+				category
+		));
+
+		ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> TakeAll.addButton(screen));
+		ClientTickEvents.START_CLIENT_TICK.register(FreeLook::tick);
+		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			while (freeLookKey.consumeClick()) {
+				FreeLook.toggle(client);
+
+				if (client.player != null) {
+					client.player.sendOverlayMessage(Component.translatable(FreeLook.isActive() ? "message.basetracer.freeLook.enabled" : "message.basetracer.freeLook.disabled"));
+				}
+			}
+
+			if (client.level != null && client.level.getGameTime() % PRUNE_INTERVAL_TICKS == 0) {
+				TRACKER.pruneUnloaded(client.level);
+			}
+
+			if (client.level != null && client.level.getGameTime() % ENTITY_INTERVAL_TICKS == 0) {
+				TRACKER.updateEntities(client.level, client.level.entitiesForRendering());
+			}
+
+			if (sharedKeyPressed(client, xrayKey)) {
+				CONFIG.xrayEnabled = !CONFIG.xrayEnabled;
+				CONFIG.save();
+
+				if (client.player != null) {
+					String key = !CONFIG.xrayEnabled ? "message.basetracer.xray.disabled" : CONFIG.enabled ? "message.basetracer.xray.enabled" : "message.basetracer.xray.modOff";
+					client.player.sendOverlayMessage(Component.translatable(key));
+				}
+			}
+
+			SPLASH.tick(client);
+			MOB_WARNING.tick(client);
+			DROPPED_ITEMS.tick(client.level);
+			SmartTool.tick(client);
+			HeldUse.tick(client);
+			TakeAll.tick(client);
+			AutoEat.tick(client);
+
+			while (quickUseKey.consumeClick()) {
+				QuickUse.press(client);
+			}
+
+			while (toggleKey.consumeClick()) {
+				CONFIG.enabled = !CONFIG.enabled;
+				CONFIG.save();
+
+				if (client.player != null) {
+					client.player.sendOverlayMessage(Component.translatable(CONFIG.enabled ? "message.basetracer.enabled" : "message.basetracer.disabled"));
+				}
+			}
+
+			XRay.update(client);
+		});
+	}
+}

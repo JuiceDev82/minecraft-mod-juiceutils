@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "basetracer-test",
+	"version": "1.0.0",
+	"name": "Base Tracer Tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"com.basetracer.test.BaseTracerClientGameTest"
+		]
+	},
+	"depends": {
+		"basetracer": "*"
+	}
+}
