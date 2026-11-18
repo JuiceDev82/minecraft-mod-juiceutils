@@ -33,7 +33,9 @@ public class BaseTracerClient implements ClientModInitializer {
 	public static final BaseTracerRenderer RENDERER = new BaseTracerRenderer(TRACKER, CONFIG);
 	public static final ModuleSplash SPLASH = new ModuleSplash();
 	public static final MobWarning MOB_WARNING = new MobWarning();
+	public static final PlayerAlerts PLAYER_ALERTS = new PlayerAlerts();
 	public static final DroppedItems DROPPED_ITEMS = new DroppedItems();
+	public static final NameTags NAME_TAGS = new NameTags();
 
 	public static void rescanLoadedChunks() {
 		Minecraft client = Minecraft.getInstance();
@@ -113,6 +115,17 @@ public class BaseTracerClient implements ClientModInitializer {
 				category
 		));
 
+		java.util.Map<SectionToggle, KeyMapping> sectionKeys = new java.util.EnumMap<>(SectionToggle.class);
+
+		for (SectionToggle section : SectionToggle.values()) {
+			sectionKeys.put(section, KeyMappingHelper.registerKeyMapping(new KeyMapping(
+					section.keyName(),
+					InputConstants.Type.KEYSYM,
+					InputConstants.UNKNOWN.getValue(),
+					category
+			)));
+		}
+
 		ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> TakeAll.addButton(screen));
 		ClientTickEvents.START_CLIENT_TICK.register(FreeLook::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -144,11 +157,14 @@ public class BaseTracerClient implements ClientModInitializer {
 
 			SPLASH.tick(client);
 			MOB_WARNING.tick(client);
+			PLAYER_ALERTS.tick(client);
 			DROPPED_ITEMS.tick(client.level);
 			SmartTool.tick(client);
 			HeldUse.tick(client);
 			TakeAll.tick(client);
 			AutoEat.tick(client);
+			AutoTotem.tick(client);
+			NAME_TAGS.tick(client);
 
 			while (quickUseKey.consumeClick()) {
 				QuickUse.press(client);
@@ -162,6 +178,18 @@ public class BaseTracerClient implements ClientModInitializer {
 					client.player.sendOverlayMessage(Component.translatable(CONFIG.enabled ? "message.basetracer.enabled" : "message.basetracer.disabled"));
 				}
 			}
+
+			sectionKeys.forEach((section, key) -> {
+				while (key.consumeClick()) {
+					boolean on = section.toggle(CONFIG);
+					CONFIG.save();
+
+					if (client.player != null) {
+						String message = !on ? "message.basetracer.section.off" : CONFIG.enabled ? "message.basetracer.section.on" : "message.basetracer.section.modOff";
+						client.player.sendOverlayMessage(Component.translatable(message, section.label()));
+					}
+				}
+			});
 
 			XRay.update(client);
 		});

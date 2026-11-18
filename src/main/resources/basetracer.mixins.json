@@ -7,9 +7,11 @@
 		"CameraMixin",
 		"ClientLevelMixin",
 		"EntityMixin",
+		"EntityRendererMixin",
 		"GameRendererMixin",
 		"KeyMappingMixin",
 		"LightCoordsUtilMixin",
+		"MinecraftMixin",
 		"MultiPlayerGameModeMixin",
 		"RenderSectionRegionMixin",
 		"SodiumLevelSliceMixin"

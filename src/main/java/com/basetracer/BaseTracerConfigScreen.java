@@ -2,7 +2,10 @@ package com.basetracer;
 
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.OptionInstance;
 import net.minecraft.client.Options;
@@ -14,6 +17,7 @@ import net.minecraft.client.gui.components.OptionsList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.options.OptionsSubScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.util.Mth;
 
 /**
@@ -112,6 +116,7 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 				OptionInstance.createBoolean("options.basetracer.showPlayers", config.showPlayers, value -> config.showPlayers = value),
 				OptionInstance.createBoolean("options.basetracer.showPlayerTracers", config.showPlayerTracers, value -> config.showPlayerTracers = value)
 		);
+		this.list.addBig(OptionInstance.createBoolean("options.basetracer.playerAlerts", config.playerAlerts, value -> config.playerAlerts = value));
 		addColorField(this.list, this.font, "options.basetracer.playerColor", config.playerColor, value -> config.playerColor = value);
 
 		this.addSection("options.basetracer.section.xray");
@@ -120,6 +125,29 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 				Button.builder(
 						Component.translatable("options.basetracer.xrayBlocks"),
 						button -> this.minecraft.gui.setScreen(new BaseTracerXRayBlocksScreen(this))
+				).build()
+		);
+
+		this.addSection("options.basetracer.section.nameTags");
+		this.list.addSmall(
+				OptionInstance.createBoolean("options.basetracer.nameTags", config.nameTags, value -> config.nameTags = value),
+				new OptionInstance<>(
+						"options.basetracer.nameTagRange",
+						OptionInstance.noTooltip(),
+						(caption, value) -> Options.genericValueLabel(caption, Component.translatable("options.basetracer.blocks", value)),
+						new OptionInstance.IntRange(BaseTracerConfig.MIN_NAME_TAG_RANGE, BaseTracerConfig.MAX_NAME_TAG_RANGE, true),
+						config.nameTagRange,
+						value -> config.nameTagRange = value
+				)
+		);
+		this.list.addSmall(
+				Button.builder(
+						Component.translatable("options.basetracer.nameTagEntities"),
+						button -> this.minecraft.gui.setScreen(new NameTagEntitiesScreen(this))
+				).build(),
+				Button.builder(
+						Component.translatable("options.basetracer.nameTagBlocks"),
+						button -> this.minecraft.gui.setScreen(new NameTagBlocksScreen(this))
 				).build()
 		);
 
@@ -155,6 +183,29 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 				new OptionInstance.IntRange(0, BaseTracerConfig.MAX_AUTO_EAT_HEALTH, true),
 				config.autoEatHealth,
 				value -> config.autoEatHealth = value
+		));
+		this.list.addSmall(
+				OptionInstance.createBoolean("options.basetracer.autoTotem", config.autoTotem, value -> config.autoTotem = value),
+				new OptionInstance<>(
+						"options.basetracer.autoTotemDelay",
+						OptionInstance.noTooltip(),
+						(caption, value) -> Options.genericValueLabel(caption, value == 0
+								? Component.translatable("options.basetracer.takeAllDelay.instant")
+								: Component.translatable("options.basetracer.seconds", String.format(java.util.Locale.ROOT, "%.2f", value / 20.0))),
+						new OptionInstance.IntRange(0, BaseTracerConfig.MAX_AUTO_TOTEM_DELAY, true),
+						config.autoTotemDelay,
+						value -> config.autoTotemDelay = value
+				)
+		);
+		this.list.addBig(new OptionInstance<>(
+				"options.basetracer.autoTotemHealth",
+				OptionInstance.cachedConstantTooltip(Component.translatable("options.basetracer.autoTotemHealth.tooltip")),
+				(caption, value) -> Options.genericValueLabel(caption, value == 0
+						? Component.translatable("options.off")
+						: Component.translatable("options.basetracer.hearts", value)),
+				new OptionInstance.IntRange(0, BaseTracerConfig.MAX_AUTO_TOTEM_HEALTH, true),
+				config.autoTotemHealth,
+				value -> config.autoTotemHealth = value
 		));
 		// The key itself is set in Controls, with the others.
 		this.list.addBig(CycleButton.builder(QuickUseAction::label, config.quickUseAction)
@@ -214,8 +265,40 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 	}
 
 	/** Styled apart from the headers above color fields, which use the same kind of row. */
+	/** A section's title, with the key that toggles it beside it, if it has one, so shortcuts can be seen at a glance. */
 	private void addSection(String key) {
-		this.list.addHeader(Component.translatable(key).withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
+		MutableComponent header = Component.translatable(key).withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD);
+		KeyMapping shortcut = sectionKey(this.minecraft.options, key);
+
+		if (shortcut != null) {
+			header.append(Component.literal("  ").append(sectionKeyLabel(shortcut)).withStyle(style -> style.withBold(false)));
+		}
+
+		this.list.addHeader(header);
+	}
+
+	/** The key that toggles a section, from the section's title key, or null for a section with none. */
+	public static @Nullable KeyMapping sectionKey(Options options, String sectionKey) {
+		String id = sectionKey.substring(sectionKey.lastIndexOf('.') + 1);
+		String name = switch (id) {
+			case "xray" -> "key.basetracer.xray";
+			case "freeLook" -> "key.basetracer.freeLook";
+			default -> "key.basetracer.section." + id;
+		};
+
+		for (KeyMapping mapping : options.keyMappings) {
+			if (mapping.getName().equals(name)) {
+				return mapping;
+			}
+		}
+
+		return null;
+	}
+
+	public static Component sectionKeyLabel(KeyMapping mapping) {
+		return mapping.isUnbound()
+				? Component.translatable("options.basetracer.sectionKey.none").withStyle(ChatFormatting.DARK_GRAY)
+				: Component.translatable("options.basetracer.sectionKey", mapping.getTranslatedKeyMessage()).withStyle(ChatFormatting.GRAY);
 	}
 
 	static void addColorField(OptionsList list, Font font, String key, String initialValue, Consumer<String> setter) {

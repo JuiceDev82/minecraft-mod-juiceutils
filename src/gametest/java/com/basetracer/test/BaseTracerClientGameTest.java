@@ -51,6 +51,8 @@ import com.basetracer.DroppedItems;
 import com.basetracer.AutoEat;
 import com.basetracer.FreeLook;
 import com.basetracer.HeldUse;
+import com.basetracer.PlayerAlerts;
+import com.basetracer.SectionToggle;
 import com.basetracer.PutAllFilter;
 import com.basetracer.PutAllItemsScreen;
 import com.basetracer.QuickUseAction;
@@ -87,6 +89,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 	public void runTest(ClientGameTestContext context) {
 		logLightEmittingBlocks();
 		testColorValidation();
+		testPlayerAlerts();
+		testSectionToggles(context);
 		testBlockHighlightFade();
 		testBusynessGradient();
 		testConfigStorage();
@@ -122,6 +126,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			testSmartTool(context, server);
 			testAutoEat(context, server);
 			testQuickUse(context, server);
+			testAutoTotem(context, server);
+			testNameTags(context, server);
 			testTakeAll(context, server);
 			testCustomRule(context, server);
 			testBasePriority(context, server);
@@ -256,6 +262,17 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		server.runCommand("setblock 38 100 34 minecraft:chest");
 		awaitSource(context, chest1, true);
 		check(highlightedBlocks(context, 2, 2) == 5, "Both rules should count: " + highlightedBlocks(context, 2, 2));
+
+		// Up close a chest in plain view fades out, but one behind a wall stays highlighted.
+		Vec3 nearChest = new Vec3(34.5, 100.5, 30.5);
+		check(context.computeOnClient(client -> BaseTracerRenderer.isInSight(client.level, chest1.asLong(), nearChest)), "Chest in the open should be in sight");
+		server.runCommand("fill 32 99 32 40 102 32 minecraft:stone");
+		sync(context, server, marker);
+		check(!context.computeOnClient(client -> BaseTracerRenderer.isInSight(client.level, chest1.asLong(), nearChest)), "Chest behind a wall should be out of sight");
+		server.runCommand("fill 32 99 32 40 102 32 minecraft:air");
+		server.runCommand("fill 32 99 32 47 99 32 minecraft:stone");
+		sync(context, server, marker);
+		check(context.computeOnClient(client -> BaseTracerRenderer.isInSight(client.level, chest1.asLong(), nearChest)), "Chest should be in sight again");
 
 		// Switching a rule off applies through a rescan.
 		context.runOnClient(client -> combo.enabled = false);
@@ -403,10 +420,24 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.runOnClient(client -> BaseTracerClient.CONFIG.showHostileMobs = true);
 		context.waitTicks(5);
 		context.takeScreenshot("basetracer_hostile_mobs");
-		context.runOnClient(client -> BaseTracerClient.CONFIG.mobOpacity = 100);
-		context.waitTicks(5);
-		context.takeScreenshot("basetracer_hostile_mobs_full_opacity");
-		context.runOnClient(client -> BaseTracerClient.CONFIG.mobOpacity = new BaseTracerConfig().mobOpacity);
+		// Outlined as glowing, following the mob's shape: the zombie is, the cow isn't, and turning highlights off ends it.
+		check(context.computeOnClient(client -> {
+			Entity zombie = null;
+			Entity cow = null;
+
+			for (Entity entity : client.level.entitiesForRendering()) {
+				if (entity.getType() == EntityTypes.ZOMBIE) {
+					zombie = entity;
+				} else if (entity.getType() == EntityTypes.COW) {
+					cow = entity;
+				}
+			}
+
+			return zombie != null && cow != null && client.shouldEntityAppearGlowing(zombie) && !client.shouldEntityAppearGlowing(cow);
+		}), "The zombie should be outlined and the cow not");
+		context.runOnClient(client -> BaseTracerClient.CONFIG.showHostileMobs = false);
+		check(context.computeOnClient(client -> java.util.stream.StreamSupport.stream(client.level.entitiesForRendering().spliterator(), false)
+				.noneMatch(entity -> entity.getType() == EntityTypes.ZOMBIE && client.shouldEntityAppearGlowing(entity))), "With mob highlights off, no outline");
 		context.runOnClient(client -> BaseTracerClient.CONFIG.showHostileMobs = false);
 
 		server.runCommand("kill @e[type=!player]");
@@ -494,8 +525,10 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		allOff.showTracers = false;
 		allOff.showLabels = false;
 		allOff.mobWarning = false;
+		allOff.playerAlerts = false;
 		allOff.smartTool = false;
 		allOff.autoEat = false;
+		allOff.autoTotem = false;
 		List<String> none = context.computeOnClient(client -> ModuleSplash.lines(allOff, false).stream().map(Component::getString).toList());
 		check(none.equals(List.of("Base Tracer: No modules on")), "Wrong splash with everything off: " + none);
 
@@ -777,6 +810,17 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.setScreen(() -> new BaseTracerRulesScreen(new BaseTracerModMenu().getModConfigScreenFactory().create(null)));
 		context.waitTicks(5);
 		context.takeScreenshot("basetracer_rules");
+		check(context.computeOnClient(client -> {
+			List<BaseRule> sorted = BaseTracerRulesScreen.byPriority(BaseTracerClient.CONFIG.rules);
+
+			for (int i = 1; i < sorted.size(); i++) {
+				if (sorted.get(i - 1).priority < sorted.get(i).priority) {
+					return false;
+				}
+			}
+
+			return sorted.size() == BaseTracerClient.CONFIG.rules.size() && sorted.getLast().lightSources;
+		}), "The rules should be listed highest priority first, with Light Sources last");
 
 		int rulesBefore = context.computeOnClient(client -> BaseTracerClient.CONFIG.rules.size());
 		context.clickScreenButton("options.basetracer.rules.add");
@@ -1503,6 +1547,9 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 	/** Settings can be opened before any world, when items have no data components to make stacks from yet. */
 	private static void testPutAllItemsFromTitleScreen(ClientGameTestContext context) {
 		context.setScreen(() -> new PutAllItemsScreen(null));
+		context.setScreen(() -> new com.basetracer.NameTagEntitiesScreen(null));
+		context.setScreen(() -> new com.basetracer.NameTagBlocksScreen(null));
+		context.setScreen(() -> new PutAllItemsScreen(null));
 		check(context.computeOnClient(client -> client.gui.screen() instanceof PutAllItemsScreen), "The Put All item list should open from the title screen");
 		context.setScreen(() -> null);
 	}
@@ -1514,6 +1561,133 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		});
 		context.waitFor(client -> client.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.ContainerScreen, TIMEOUT_TICKS);
 		context.waitTicks(2);
+	}
+
+	private static void testNameTags(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.nameTags && BaseTracerClient.CONFIG.nameTagEntities().isEmpty()
+				&& BaseTracerClient.CONFIG.nameTagBlocks().isEmpty()), "Name tags should start on, with nothing chosen");
+		server.runCommand("tp @a 8.5 100 8.5 -90 10");
+		server.runCommand("setblock 12 99 8 minecraft:barrier");
+		server.runCommand("setblock 12 99 11 minecraft:barrier");
+		server.runCommand("summon minecraft:acacia_boat 12.5 100 8.5");
+		server.runCommand("setblock 12 100 11 minecraft:chest");
+		context.waitTicks(10);
+
+		// Nothing chosen, nothing tagged.
+		check(context.computeOnClient(client -> BaseTracerClient.NAME_TAGS.tags(client.level, BaseTracerClient.CONFIG, client.player.getEyePosition(), 1F).isEmpty()),
+				"Nothing should be tagged before anything is chosen");
+
+		// The acacia boat and the chest get tags with their names.
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.setNameTagged(net.minecraft.world.entity.EntityTypes.ACACIA_BOAT, true);
+			BaseTracerClient.CONFIG.setNameTagBlock(Blocks.CHEST, true);
+			BaseTracerClient.NAME_TAGS.rescanSoon();
+		});
+		context.waitTicks(5);
+		List<String> labels = context.computeOnClient(client -> BaseTracerClient.NAME_TAGS.tags(client.level, BaseTracerClient.CONFIG, client.player.getEyePosition(), 1F)
+				.stream().map(tag -> tag.label()).toList());
+		check(labels.contains("Acacia Boat") && labels.contains("Chest") && labels.size() == 2, "The boat and the chest should be tagged, not: " + labels);
+		context.takeScreenshot("basetracer_name_tags");
+
+		// Out of range, no tags.
+		context.runOnClient(client -> BaseTracerClient.CONFIG.nameTagRange = BaseTracerConfig.MIN_NAME_TAG_RANGE);
+		server.runCommand("tp @a 30.5 100 8.5 -90 10");
+		context.waitTicks(15);
+		check(context.computeOnClient(client -> BaseTracerClient.NAME_TAGS.tags(client.level, BaseTracerClient.CONFIG, client.player.getEyePosition(), 1F).isEmpty()),
+				"Nothing should be tagged out of range");
+
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.nameTagRange = 32;
+			BaseTracerClient.CONFIG.clearNameTagEntities();
+			BaseTracerClient.CONFIG.clearNameTagBlocks();
+		});
+		server.runCommand("kill @e[type=minecraft:acacia_boat]");
+		server.runCommand("setblock 12 100 11 minecraft:air");
+		server.runCommand("setblock 12 99 8 minecraft:air");
+		server.runCommand("setblock 12 99 11 minecraft:air");
+		server.runCommand("kill @e[type=minecraft:item]");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
+	}
+
+	private static void testAutoTotem(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.autoTotem && BaseTracerClient.CONFIG.autoTotemDelay == 5), "Auto totem should start on, after a quarter second");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+		server.runCommand("effect clear @a");
+		context.runOnClient(client -> BaseTracerClient.CONFIG.autoTotemDelay = 20);
+
+		// A shield in the offhand stays there, with two totems waiting in the main inventory.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:shield");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:iron_sword");
+		server.runCommand("item replace entity @a inventory.5 with minecraft:totem_of_undying");
+		server.runCommand("item replace entity @a inventory.20 with minecraft:totem_of_undying");
+		context.waitTicks(40);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.SHIELD)), "A shield in the offhand shouldn't be swapped for a totem");
+
+		// Taking the shield out: after the wait, a totem goes in.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:air");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().isEmpty()), "The totem shouldn't go in before the wait");
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			var inventory = player.getInventory();
+			return player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && inventory.getItem(14).isEmpty()
+					&& inventory.getItem(29).is(Items.TOTEM_OF_UNDYING) && inventory.getItem(0).is(Items.IRON_SWORD);
+		}), "On the server, the totem should be in the offhand and the sword kept");
+
+		// It pops, and after the wait the second one goes in.
+		server.runCommand("damage @p 100 minecraft:generic");
+		context.waitFor(client -> !client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING), TIMEOUT_TICKS);
+		check(context.computeOnClient(client -> client.player.isAlive()), "The totem should have saved the player");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> !client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)), "The next totem shouldn't go in before the wait");
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getOffhandItem().is(Items.TOTEM_OF_UNDYING)),
+				"The server should have the second totem in the offhand");
+
+		// The last one pops, and with none left it says so.
+		server.runCommand("effect clear @a");
+		server.runCommand("effect give @a minecraft:instant_health 1 5");
+		context.waitTicks(5);
+		server.runCommand("damage @p 100 minecraft:generic");
+		context.waitFor(client -> !client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING), TIMEOUT_TICKS);
+		context.waitTicks(30);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().isEmpty() && client.player.isAlive()), "With no totems left, the offhand should stay empty");
+
+		// Low on health, a totem replaces even a shield, without the wait.
+		server.runCommand("effect clear @a");
+		server.runCommand("effect give @a minecraft:instant_health 1 5");
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.autoTotemHealth == 4), "Low health swap should start at 4 hearts");
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:shield");
+		server.runCommand("item replace entity @a inventory.5 with minecraft:totem_of_undying");
+		context.waitTicks(30);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.SHIELD)), "At full health the shield should stay");
+		server.runCommand("damage @p 14 minecraft:generic");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)), "Low on health, a totem should replace the shield at once");
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			return player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && player.getInventory().getItem(14).is(Items.SHIELD);
+		}), "On the server, the totem should be in the offhand and the shield where the totem was");
+
+		server.runCommand("effect clear @a");
+		server.runCommand("effect give @a minecraft:instant_health 1 5");
+		// Back to full food too, so that later tests can count on natural healing.
+		server.runCommand("effect give @a minecraft:saturation 1 20");
+		context.runOnClient(client -> BaseTracerClient.CONFIG.autoTotemDelay = 5);
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
 	}
 
 	private static void testQuickUse(ClientGameTestContext context, TestServerContext server) {
@@ -2048,8 +2222,16 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			reloaded.autoEatHealth = 30;
 			reloaded.quickUseAction = QuickUseAction.POTION;
 			reloaded.takeAll = false;
+			reloaded.autoTotem = false;
+			reloaded.nameTags = false;
+			reloaded.nameTagRange = 48;
+			reloaded.setNameTagged(net.minecraft.world.entity.EntityTypes.ACACIA_BOAT, true);
+			reloaded.setNameTagBlock(Blocks.CHEST, true);
+			reloaded.autoTotemDelay = 40;
+			reloaded.autoTotemHealth = 7;
 			reloaded.takeAllDelay = 4;
 			reloaded.putAllHotbar = true;
+			reloaded.playerAlerts = false;
 			reloaded.putAllFilter = PutAllFilter.EXCEPT_LISTED;
 			reloaded.setPutAllItem(Items.COBBLESTONE, true);
 			reloaded.showItems = true;
@@ -2078,7 +2260,11 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			check(!withRules.smartTool && withRules.smartToolDelay == 20, "Smart tool settings lost on reload");
 			check(!withRules.autoEat && withRules.autoEatHunger == 6 && withRules.autoEatHealth == 30, "Auto eat settings lost on reload");
 			check(withRules.quickUseAction == QuickUseAction.POTION, "Quick use action lost on reload");
+			check(!withRules.autoTotem && withRules.autoTotemDelay == 40 && withRules.autoTotemHealth == 7, "Auto totem settings lost on reload");
+			check(!withRules.nameTags && withRules.nameTagRange == 48 && withRules.isNameTagged(net.minecraft.world.entity.EntityTypes.ACACIA_BOAT)
+					&& withRules.nameTagBlocks().contains(Blocks.CHEST) && !withRules.nameTagBlocks().contains(Blocks.STONE), "Name tag settings lost on reload");
 			check(!withRules.takeAll && withRules.takeAllDelay == 4 && withRules.putAllHotbar
+					&& !withRules.playerAlerts
 					&& withRules.putAllFilter == PutAllFilter.EXCEPT_LISTED && withRules.isPutAllListed(Items.COBBLESTONE)
 					&& !withRules.isPutAllListed(Items.DIRT), "Take all settings lost on reload");
 			check(withRules.showPlayers && !withRules.showPlayerTracers && !withRules.showLabelDistance && !withRules.showLabelCoordinates, "Player or label settings lost on reload");
@@ -2157,6 +2343,79 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		if (!condition) {
 			throw new AssertionError(message);
 		}
+	}
+
+	private static void testSectionToggles(ClientGameTestContext context) {
+		// Every section has a key, and none is bound until chosen.
+		for (SectionToggle section : SectionToggle.values()) {
+			check(context.computeOnClient(client -> java.util.Arrays.stream(client.options.keyMappings)
+					.anyMatch(key -> key.getName().equals(section.keyName()) && key.isUnbound())), "There should be an unbound key for " + section);
+		}
+
+		// Searching the controls for "basetracer" finds every one of this mod's keys, as Controlling matches names.
+		check(context.computeOnClient(client -> java.util.Arrays.stream(client.options.keyMappings)
+				.filter(key -> key.getName().startsWith("key.basetracer."))
+				.allMatch(key -> net.minecraft.network.chat.Component.translatable(key.getName()).getString().toLowerCase(java.util.Locale.ROOT).contains("basetracer"))),
+				"Every key's name should contain \"basetracer\"");
+
+		// Each section's title shows its key: unbound at first, then whatever it's set to.
+		for (SectionToggle section : SectionToggle.values()) {
+			check(context.computeOnClient(client -> com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section." + section.keyName().substring("key.basetracer.section.".length())) != null),
+					"The " + section + " section should find its key");
+		}
+
+		check(context.computeOnClient(client -> com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.xray").getName().equals("key.basetracer.xray")
+				&& com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.appearance") == null), "X-Ray should show its key, and Appearance none");
+		check(context.computeOnClient(client -> com.basetracer.BaseTracerConfigScreen.sectionKeyLabel(
+				com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.bases")).getString().equals("[No Key]")), "An unbound section should say so");
+		context.runOnClient(client -> {
+			KeyMapping bases = com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.bases");
+			bases.setKey(InputConstants.Type.KEYSYM.getOrCreate(GLFW.GLFW_KEY_B));
+			KeyMapping.resetMapping();
+		});
+		check(context.computeOnClient(client -> com.basetracer.BaseTracerConfigScreen.sectionKeyLabel(
+				com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.bases")).getString().equals("[B]")), "A bound section should show its key");
+		context.setScreen(() -> new BaseTracerModMenu().getModConfigScreenFactory().create(null));
+		context.waitTicks(5);
+		context.takeScreenshot("basetracer_section_keys");
+		context.setScreen(() -> null);
+		context.runOnClient(client -> {
+			com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.bases").setKey(InputConstants.UNKNOWN);
+			KeyMapping.resetMapping();
+		});
+
+		// Off remembers what was on, and on brings back just that.
+		BaseTracerConfig config = new BaseTracerConfig();
+		config.showHostileMobs = false;
+		config.mobWarning = true;
+		check(!SectionToggle.MOBS.toggle(config) && !config.showHostileMobs && !config.mobWarning, "Mobs should turn off");
+		check(SectionToggle.MOBS.toggle(config) && !config.showHostileMobs && config.mobWarning, "Mobs should come back as they were");
+
+		// With nothing remembered, on turns the whole section on.
+		config.smartTool = false;
+		config.autoEat = false;
+		config.takeAll = false;
+		config.autoTotem = false;
+		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll, "Tools should all turn on");
+		SectionToggle.forgetAll();
+	}
+
+	private static void testPlayerAlerts() {
+		PlayerAlerts alerts = new PlayerAlerts();
+		java.util.UUID steve = java.util.UUID.randomUUID();
+		java.util.UUID alex = java.util.UUID.randomUUID();
+		check(alerts.update(java.util.Map.of()) == null, "No players, no alert");
+		check(alerts.update(java.util.Map.of(steve, "Steve")).getString().equals("Steve came into range"), "Steve arriving should be announced");
+		check(alerts.update(java.util.Map.of(steve, "Steve")) == null, "Steve staying shouldn't be announced again");
+
+		java.util.Map<java.util.UUID, String> both = new java.util.LinkedHashMap<>();
+		both.put(steve, "Steve");
+		both.put(alex, "Alex");
+		check(alerts.update(both).getString().equals("Alex came into range"), "Only the new player should be announced");
+		check(alerts.update(java.util.Map.of(alex, "Alex")).getString().equals("Steve went out of range"), "Steve leaving should be announced");
+
+		String swap = alerts.update(java.util.Map.of(steve, "Steve")).getString();
+		check(swap.equals("Steve came into range  ·  Alex went out of range"), "Arriving and leaving together should share one alert, not: " + swap);
 	}
 
 	private static void testColorValidation() {

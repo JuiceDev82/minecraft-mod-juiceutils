@@ -86,6 +86,10 @@ public final class ModuleSplash {
 			modules.add(Component.translatable("options.basetracer.showHostileMobs"));
 		}
 
+		if (config.playerAlerts) {
+			modules.add(Component.translatable("options.basetracer.playerAlerts"));
+		}
+
 		if (config.mobWarning) {
 			modules.add(Component.translatable("options.basetracer.mobWarning"));
 		}
@@ -108,6 +112,14 @@ public final class ModuleSplash {
 
 		if (config.autoEat) {
 			modules.add(Component.translatable("options.basetracer.autoEat"));
+		}
+
+		if (config.nameTags && (!config.nameTagEntities().isEmpty() || !config.nameTagBlocks().isEmpty())) {
+			modules.add(Component.translatable("options.basetracer.section.nameTags"));
+		}
+
+		if (config.autoTotem) {
+			modules.add(Component.translatable("options.basetracer.autoTotem"));
 		}
 
 		if (freeLook) {

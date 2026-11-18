@@ -1,5 +1,7 @@
 package com.basetracer;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import net.minecraft.ChatFormatting;
@@ -14,7 +16,8 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
 /**
- * Lists the rules that mark a chunk as a base, each with its own on/off switch.
+ * Lists the rules that mark a chunk as a base, each with its own on/off switch, highest priority first so that the
+ * order bases are picked in can be seen at a glance.
  */
 public class BaseTracerRulesScreen extends OptionsSubScreen {
 	private static final Component ON = Component.translatable("options.basetracer.rule.on").withStyle(ChatFormatting.GREEN);
@@ -29,18 +32,25 @@ public class BaseTracerRulesScreen extends OptionsSubScreen {
 	protected void addOptions() {
 		BaseTracerConfig config = BaseTracerClient.CONFIG;
 
-		for (BaseRule rule : config.rules) {
+		for (BaseRule rule : byPriority(config.rules)) {
 			this.list.addSmall(
 					CycleButton.booleanBuilder(ON, OFF, rule.enabled).create(Component.literal(rule.name), (button, value) -> {
 						rule.enabled = value;
 						config.markRulesChanged();
 					}),
 					Button.builder(
-							Component.translatable("options.basetracer.rule.edit"),
+							Component.translatable("options.basetracer.rule.editWithPriority", rule.priority),
 							button -> this.minecraft.gui.setScreen(new BaseTracerRuleScreen(this.lastScreen, rule))
 					).build()
 			);
 		}
+	}
+
+	/** Highest priority first, keeping the rules' own order among equals. */
+	public static List<BaseRule> byPriority(List<BaseRule> rules) {
+		List<BaseRule> sorted = new ArrayList<>(rules);
+		sorted.sort(Comparator.comparingInt((BaseRule rule) -> rule.priority).reversed());
+		return sorted;
 	}
 
 	@Override

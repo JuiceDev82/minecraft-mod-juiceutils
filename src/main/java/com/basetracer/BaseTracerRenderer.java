@@ -32,6 +32,11 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -64,6 +69,7 @@ public final class BaseTracerRenderer {
 	public static final float BLOCK_HIDE_DISTANCE = 2F;
 	/** And back at full strength from this far. */
 	public static final float BLOCK_FULL_DISTANCE = 5F;
+	private static final double SIGHT_FACE_OFFSET = 0.45;
 	/** Keeps the geometry per frame bounded in places with thousands of matching blocks. */
 	public static final int MAX_BLOCK_HIGHLIGHTS = 512;
 	/** Keeps the geometry per frame bounded around mob farms. */
@@ -71,6 +77,7 @@ public final class BaseTracerRenderer {
 	/** Around mob farms there can be thousands of items; the nearest are the ones worth showing. */
 	public static final int MAX_ITEM_HIGHLIGHTS = 128;
 	private static final int ITEM_LABEL_COLOR = 0xFFFFFFFF;
+	private static final int NAME_TAG_COLOR = 0xFFFFFF88;
 	/** How opaque a mob's fill is compared to its outline, so that the mob stays visible inside its box. */
 	private static final float MOB_FILL_SHARE = 0.3F;
 	private static final float LABEL_SCALE = 0.5F;
@@ -91,9 +98,9 @@ public final class BaseTracerRenderer {
 	private List<ChunkHighlight> highlights = List.of();
 	private List<ChunkHighlight> labelled = List.of();
 	private List<BlockMark> blockMarks = List.of();
-	private List<AABB> hostileMobs = List.of();
 	private List<AABB> players = List.of();
 	private List<DroppedItems.ItemMark> items = List.of();
+	private List<NameTags.Tag> nameTags = List.of();
 	private int snapshotRevision = -1;
 	private long snapshotCameraBlock;
 	private TracerMode snapshotTracerMode;
@@ -111,9 +118,9 @@ public final class BaseTracerRenderer {
 			this.highlights = List.of();
 			this.labelled = List.of();
 			this.blockMarks = List.of();
-			this.hostileMobs = List.of();
 			this.players = List.of();
 			this.items = List.of();
+			this.nameTags = List.of();
 			this.snapshotRevision = -1;
 			return;
 		}
@@ -124,9 +131,9 @@ public final class BaseTracerRenderer {
 		// Mobs and players move every frame, so unlike the rest these can't wait for a change.
 		Minecraft client = Minecraft.getInstance();
 		float partialTick = client.getDeltaTracker().getGameTimeDeltaPartialTick(false);
-		this.hostileMobs = this.config.showHostileMobs ? nearestMobs(client.level, this.config, camera, partialTick, MAX_MOB_HIGHLIGHTS) : List.of();
 		this.players = this.config.showPlayers ? otherPlayers(client.level, client.player, partialTick) : List.of();
 		this.items = this.config.showItems ? BaseTracerClient.DROPPED_ITEMS.marks(client.level, this.config.itemMode, camera, partialTick, MAX_ITEM_HIGHLIGHTS) : List.of();
+		this.nameTags = this.config.nameTags ? BaseTracerClient.NAME_TAGS.tags(client.level, this.config, camera, partialTick) : List.of();
 
 		TracerMode tracerMode = this.config.tracerMode;
 		int limit = this.config.baseLimit();
@@ -153,7 +160,7 @@ public final class BaseTracerRenderer {
 	public void render() {
 		boolean showBases = !this.highlights.isEmpty() && (this.config.showChunkHighlights || this.config.showTracers || this.config.showBlockHighlights);
 
-		if (!showBases && this.hostileMobs.isEmpty() && this.players.isEmpty() && this.items.isEmpty()) {
+		if (!showBases && this.players.isEmpty() && this.items.isEmpty()) {
 			return;
 		}
 
@@ -187,10 +194,6 @@ public final class BaseTracerRenderer {
 			for (BlockMark mark : this.blockMarks) {
 				this.addBlockHighlight(lines, mark, cameraState.pos);
 			}
-		}
-
-		for (AABB mob : this.hostileMobs) {
-			this.addEntityHighlight(lines, mob, cameraState.pos, this.config.hostileMobArgb());
 		}
 
 		for (DroppedItems.ItemMark item : this.items) {
@@ -258,8 +261,14 @@ public final class BaseTracerRenderer {
 		float maxX = minX + 1F;
 		float maxY = minY + 1F;
 		float maxZ = minZ + 1F;
-		// Fades out up close, so that a block being looked at or mined isn't covered.
+		// Fades out up close, so that a block being looked at or mined isn't covered. One behind a wall stays, since
+		// then the highlight is the only way to see it.
 		float strength = nearStrength(blockDistance(mark.pos(), camera));
+		ClientLevel level = Minecraft.getInstance().level;
+
+		if (strength < 1F && level != null && !isInSight(level, mark.pos(), camera)) {
+			strength = 1F;
+		}
 
 		if (strength <= 0F) {
 			return;
@@ -276,6 +285,41 @@ public final class BaseTracerRenderer {
 		double dy = Math.max(0, Math.max(BlockPos.getY(pos) - camera.y, camera.y - (BlockPos.getY(pos) + 1)));
 		double dz = Math.max(0, Math.max(BlockPos.getZ(pos) - camera.z, camera.z - (BlockPos.getZ(pos) + 1)));
 		return Math.sqrt(dx * dx + dy * dy + dz * dz);
+	}
+
+	/**
+	 * Whether any of a block can be seen from the camera: its middle, or the middle of a side facing the camera, with
+	 * nothing in between.
+	 */
+	public static boolean isInSight(BlockGetter level, long pos, Vec3 camera) {
+		BlockPos block = BlockPos.of(pos);
+		Vec3 center = Vec3.atCenterOf(block);
+		Vec3 toCamera = camera.subtract(center);
+		List<Vec3> targets = new ArrayList<>(4);
+		targets.add(center);
+
+		// Just inside each side facing the camera, so that a block peeking round a corner counts.
+		if (Math.abs(toCamera.x) > 0.5) {
+			targets.add(center.add(Math.signum(toCamera.x) * SIGHT_FACE_OFFSET, 0, 0));
+		}
+
+		if (Math.abs(toCamera.y) > 0.5) {
+			targets.add(center.add(0, Math.signum(toCamera.y) * SIGHT_FACE_OFFSET, 0));
+		}
+
+		if (Math.abs(toCamera.z) > 0.5) {
+			targets.add(center.add(0, 0, Math.signum(toCamera.z) * SIGHT_FACE_OFFSET));
+		}
+
+		for (Vec3 target : targets) {
+			BlockHitResult hit = level.clip(new ClipContext(camera, target, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+
+			if (hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(block)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** How strongly a block highlight shows at a distance: none up close, rising to full. */
@@ -311,6 +355,15 @@ public final class BaseTracerRenderer {
 		this.addFill(lines.buffer, lines.pose, Math.round(alpha * MOB_FILL_SHARE) << 24 | color & 0xFFFFFF, minX, minY, minZ, maxX, maxY, maxZ);
 		lines.color = alpha << 24 | color & 0xFFFFFF;
 		addBoxLines(lines, minX, minY, minZ, maxX, maxY, maxZ);
+	}
+
+	/**
+	 * Whether a mob gets the highlight outline: alive, and on the mob list, with mob highlights on. Drawn by the game
+	 * as if glowing, so it follows the mob's shape rather than a box around it.
+	 */
+	public static boolean isOutlined(Entity entity) {
+		BaseTracerConfig config = BaseTracerClient.CONFIG;
+		return config.enabled && config.showHostileMobs && entity.isAlive() && config.isMobHighlighted(entity.getType());
 	}
 
 	/** The boxes of living listed mobs where they appear this frame, keeping the nearest if there are too many. */
@@ -370,8 +423,9 @@ public final class BaseTracerRenderer {
 
 		boolean chunkLabels = this.config.showLabels && !this.labelled.isEmpty();
 		boolean itemLabels = this.config.showItems && this.config.showItemLabels && !this.items.isEmpty();
+		boolean nameTagLabels = this.config.nameTags && !this.nameTags.isEmpty();
 
-		if (!chunkLabels && !itemLabels) {
+		if (!chunkLabels && !itemLabels && !nameTagLabels) {
 			return;
 		}
 
@@ -379,6 +433,13 @@ public final class BaseTracerRenderer {
 		CameraRenderState camera = this.cameraState;
 		Matrix4f worldToClip = new Matrix4f(camera.projectionMatrix).mul(camera.viewRotationMatrix);
 		List<int[]> drawn = new ArrayList<>();
+
+		// Name tags first: they're the nearest, and each is a single short line.
+		if (nameTagLabels) {
+			for (NameTags.Tag tag : this.nameTags) {
+				drawLabel(graphics, font, worldToClip, camera, tag.pos(), List.of(new LabelLine(tag.label(), NAME_TAG_COLOR)), MAX_ITEM_LABEL_SHIFT, drawn);
+			}
+		}
 
 		// Items first: they're nearby, and their labels are small enough to leave room for the chunks'.
 		if (itemLabels) {

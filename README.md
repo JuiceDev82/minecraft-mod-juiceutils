@@ -9,10 +9,13 @@ Because the mod is client-only, it works on any server. The server doesn't need 
 ## Features
 
 - **Bases:** highlights chunks and blocks that match your rules, such as light sources or player-made blocks, with tracer
-  lines and labels pointing to them.
-- **Mobs and players:** outlines hostile mobs and players, and warns you when a hostile mob is close. Piglins and
-  zombified piglins only trigger the warning when they're aggressive.
+  lines and labels pointing to them. Rules are listed highest priority first. Close-up highlights fade so they don't
+  cover what you're looking at, but stay when the block is behind a wall.
+- **Mobs and players:** outlines hostile mobs along their shape and highlights players. Warns you when a hostile mob is
+  close; piglins and zombified piglins only count when they're aggressive. A message and a ding tell you when a player
+  comes into or goes out of range.
 - **Items:** labels dropped items.
+- **Name Tags:** shows the name above the entities and blocks you choose, such as "Acacia Boat" above a boat.
 - **X-Ray:** shows only the blocks you choose.
 - **Free Look:** moves the camera around without turning your character.
 - **Smart Tool:** switches to the best hotbar tool for the block you're mining, after a short delay to ignore misclicks. It
@@ -20,6 +23,8 @@ Because the mod is client-only, it works on any server. The server doesn't need 
   let go.
 - **Auto Eat:** eats the best food in your hotbar when your hunger drops to a level you choose, or when your health is
   low.
+- **Auto Totem:** keeps a totem of undying in your offhand, waiting a time you choose after one pops. A shield in your
+  offhand stays until you take it out, unless your health drops below a level you choose.
 - **Quick Use:** one key throws an ender pearl, drinks a potion or eats an enchanted golden apple, then switches back to
   your previous item.
 - **Take All / Put All:** buttons on chests, barrels, shulker boxes, hoppers, dispensers and droppers to move everything
@@ -33,6 +38,9 @@ Because the mod is client-only, it works on any server. The server doesn't need 
 | `J` | Toggle Free Look |
 | `X` | Toggle X-Ray |
 | Mouse button 4 | Quick Use |
+
+Each settings section also has its own on/off key, unbound by default, shown next to its title in the settings.
+Searching "basetracer" under Options → Controls lists all of the mod's keys.
 
 You can change these under Options → Controls. Every feature can be adjusted or turned off in the mod's settings, which
 open from [Mod Menu](https://modrinth.com/mod/modmenu).

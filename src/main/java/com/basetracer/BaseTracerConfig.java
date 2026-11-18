@@ -37,6 +37,10 @@ public final class BaseTracerConfig {
 	public static final int MAX_AUTO_EAT_HUNGER = 19;
 	public static final int MAX_AUTO_EAT_HEALTH = 95;
 	public static final int MAX_TAKE_ALL_DELAY = 10;
+	public static final int MAX_AUTO_TOTEM_DELAY = 100;
+	public static final int MAX_AUTO_TOTEM_HEALTH = 10;
+	public static final int MIN_NAME_TAG_RANGE = 8;
+	public static final int MAX_NAME_TAG_RANGE = 64;
 	public static final int MAX_MOB_WARNING_DISTANCE = 32;
 	/** From when this mod was called Light Tracer. */
 	private static final String OLD_NAME_FILE_NAME = "lighttracer.properties";
@@ -127,12 +131,22 @@ public final class BaseTracerConfig {
 	public int mobWarningDistance = 10;
 	public boolean showPlayers = false;
 	public boolean showPlayerTracers = true;
+	/** Says above the hotbar when another player comes into range or leaves it. */
+	public boolean playerAlerts = true;
 	public boolean xrayEnabled = false;
 	public boolean smartTool = true;
 	/** Ticks of mining before the tool is switched, so that a misclick doesn't switch it. */
 	public int smartToolDelay = 10;
 	public boolean autoEat = true;
 	public QuickUseAction quickUseAction = QuickUseAction.ENDER_PEARL;
+	public boolean autoTotem = true;
+	public boolean nameTags = true;
+	/** Blocks from the camera that name tags reach. */
+	public int nameTagRange = 32;
+	/** Ticks after the offhand loses its totem before another goes in. */
+	public int autoTotemDelay = 5;
+	/** Hearts at or below which a totem goes in straight away, even over a shield. 0 is off. */
+	public int autoTotemHealth = 4;
 	public boolean takeAll = true;
 	/** Ticks between the slots Take All shift-clicks. 0 takes everything at once. */
 	public int takeAllDelay = 1;
@@ -146,7 +160,7 @@ public final class BaseTracerConfig {
 	public int autoEatHealth = 50;
 	/** How many bases are shown, the highest priority and then the nearest. Above {@link #MAX_BASES_LIMIT} means all. */
 	public int maxBases = 10;
-	/** Percent. Applies to both the outline and the fill of a mob's box. */
+	/** Percent. Applies to both the outline and the fill of player and item boxes. Mobs are outlined solid instead. */
 	public int mobOpacity = 50;
 	/** Percent. Each rule's color fills its highlight at this opacity, and more for busier chunks. */
 	public int fillOpacity = 9;
@@ -161,6 +175,8 @@ public final class BaseTracerConfig {
 	private TreeSet<String> mobOverrides = new TreeSet<>();
 	private TreeSet<String> xrayBlockIds = new TreeSet<>(DEFAULT_XRAY_BLOCKS);
 	private TreeSet<String> putAllItemIds = new TreeSet<>();
+	private TreeSet<String> nameTagEntityIds = new TreeSet<>();
+	private TreeSet<String> nameTagBlockIds = new TreeSet<>();
 	// Only read when importing the old JSON file, where tracerMode didn't exist yet.
 	@SerializedName("tracerPerSource")
 	private Boolean legacyTracerPerSource;
@@ -171,6 +187,8 @@ public final class BaseTracerConfig {
 	private transient Set<EntityType<?>> mobOverrideTypes;
 	/** Replaced rather than changed, so that X-Ray can tell when to rebuild. */
 	private transient Set<Block> xrayBlockSet;
+	private transient Set<EntityType<?>> nameTagEntitySet;
+	private transient Set<Block> nameTagBlockSet;
 	/** The blocks of every enabled rule, so that scanning a block doesn't have to walk the rules. */
 	private transient Set<Block> trackedBlocks;
 	private transient boolean trackLightSources;
@@ -232,6 +250,7 @@ public final class BaseTracerConfig {
 		config.showLabelCoordinates = Boolean.parseBoolean(properties.getProperty("showLabelCoordinates", String.valueOf(config.showLabelCoordinates)));
 		config.showPlayers = Boolean.parseBoolean(properties.getProperty("showPlayers", String.valueOf(config.showPlayers)));
 		config.showPlayerTracers = Boolean.parseBoolean(properties.getProperty("showPlayerTracers", String.valueOf(config.showPlayerTracers)));
+		config.playerAlerts = Boolean.parseBoolean(properties.getProperty("playerAlerts", String.valueOf(config.playerAlerts)));
 		config.showHostileMobs = Boolean.parseBoolean(properties.getProperty("showHostileMobs", String.valueOf(config.showHostileMobs)));
 		config.mobWarning = Boolean.parseBoolean(properties.getProperty("mobWarning", String.valueOf(config.mobWarning)));
 		config.showItems = Boolean.parseBoolean(properties.getProperty("showItems", String.valueOf(config.showItems)));
@@ -249,8 +268,15 @@ public final class BaseTracerConfig {
 		config.smartToolDelay = Mth.clamp(readInt(properties, "smartToolDelay", config.smartToolDelay), 0, MAX_SMART_TOOL_DELAY);
 		config.autoEat = Boolean.parseBoolean(properties.getProperty("autoEat", String.valueOf(config.autoEat)));
 		config.takeAll = Boolean.parseBoolean(properties.getProperty("takeAll", String.valueOf(config.takeAll)));
+		config.autoTotem = Boolean.parseBoolean(properties.getProperty("autoTotem", String.valueOf(config.autoTotem)));
+		config.autoTotemDelay = Mth.clamp(readInt(properties, "autoTotemDelay", config.autoTotemDelay), 0, MAX_AUTO_TOTEM_DELAY);
+		config.autoTotemHealth = Mth.clamp(readInt(properties, "autoTotemHealth", config.autoTotemHealth), 0, MAX_AUTO_TOTEM_HEALTH);
 		config.takeAllDelay = Mth.clamp(readInt(properties, "takeAllDelay", config.takeAllDelay), 0, MAX_TAKE_ALL_DELAY);
 		config.putAllHotbar = Boolean.parseBoolean(properties.getProperty("putAllHotbar", String.valueOf(config.putAllHotbar)));
+		config.nameTags = Boolean.parseBoolean(properties.getProperty("nameTags", String.valueOf(config.nameTags)));
+		config.nameTagRange = Mth.clamp(readInt(properties, "nameTagRange", config.nameTagRange), MIN_NAME_TAG_RANGE, MAX_NAME_TAG_RANGE);
+		readIds(properties.getProperty("nameTagEntities", ""), config.nameTagEntityIds);
+		readIds(properties.getProperty("nameTagBlocks", ""), config.nameTagBlockIds);
 
 		try {
 			config.putAllFilter = PutAllFilter.valueOf(properties.getProperty("putAllFilter", config.putAllFilter.name()));
@@ -473,6 +499,7 @@ public final class BaseTracerConfig {
 		properties.setProperty("showLabelCoordinates", String.valueOf(this.showLabelCoordinates));
 		properties.setProperty("showPlayers", String.valueOf(this.showPlayers));
 		properties.setProperty("showPlayerTracers", String.valueOf(this.showPlayerTracers));
+		properties.setProperty("playerAlerts", String.valueOf(this.playerAlerts));
 		properties.setProperty("showHostileMobs", String.valueOf(this.showHostileMobs));
 		properties.setProperty("mobWarning", String.valueOf(this.mobWarning));
 		properties.setProperty("showItems", String.valueOf(this.showItems));
@@ -486,10 +513,17 @@ public final class BaseTracerConfig {
 		properties.setProperty("autoEat", String.valueOf(this.autoEat));
 		properties.setProperty("quickUseAction", this.quickUseAction.name());
 		properties.setProperty("takeAll", String.valueOf(this.takeAll));
+		properties.setProperty("autoTotem", String.valueOf(this.autoTotem));
+		properties.setProperty("autoTotemDelay", String.valueOf(this.autoTotemDelay));
+		properties.setProperty("autoTotemHealth", String.valueOf(this.autoTotemHealth));
 		properties.setProperty("takeAllDelay", String.valueOf(this.takeAllDelay));
 		properties.setProperty("putAllHotbar", String.valueOf(this.putAllHotbar));
 		properties.setProperty("putAllFilter", this.putAllFilter.name());
 		properties.setProperty("putAllItems", String.join(",", this.putAllItemIds));
+		properties.setProperty("nameTags", String.valueOf(this.nameTags));
+		properties.setProperty("nameTagRange", String.valueOf(this.nameTagRange));
+		properties.setProperty("nameTagEntities", String.join(",", this.nameTagEntityIds));
+		properties.setProperty("nameTagBlocks", String.join(",", this.nameTagBlockIds));
 		properties.setProperty("autoEatHunger", String.valueOf(this.autoEatHunger));
 		properties.setProperty("autoEatHealth", String.valueOf(this.autoEatHealth));
 		properties.setProperty("maxBases", String.valueOf(this.maxBases));
@@ -709,6 +743,89 @@ public final class BaseTracerConfig {
 	/** How many bases to show, or Integer.MAX_VALUE for all. */
 	public int baseLimit() {
 		return this.maxBases > MAX_BASES_LIMIT ? Integer.MAX_VALUE : this.maxBases;
+	}
+
+	private static void readIds(String list, Set<String> ids) {
+		for (String id : list.split(",")) {
+			if (!id.isBlank()) {
+				ids.add(id.trim());
+			}
+		}
+	}
+
+	public boolean isNameTagged(EntityType<?> type) {
+		return this.nameTagEntities().contains(type);
+	}
+
+	public void setNameTagged(EntityType<?> type, boolean tagged) {
+		String id = BuiltInRegistries.ENTITY_TYPE.getKey(type).toString();
+
+		if (tagged) {
+			this.nameTagEntityIds.add(id);
+		} else {
+			this.nameTagEntityIds.remove(id);
+		}
+
+		this.nameTagEntitySet = null;
+	}
+
+	public void clearNameTagEntities() {
+		this.nameTagEntityIds.clear();
+		this.nameTagEntitySet = null;
+	}
+
+	public void setNameTagBlock(Block block, boolean tagged) {
+		String id = BuiltInRegistries.BLOCK.getKey(block).toString();
+
+		if (tagged) {
+			this.nameTagBlockIds.add(id);
+		} else {
+			this.nameTagBlockIds.remove(id);
+		}
+
+		this.nameTagBlockSet = null;
+	}
+
+	public void clearNameTagBlocks() {
+		this.nameTagBlockIds.clear();
+		this.nameTagBlockSet = null;
+	}
+
+	// Resolved on first use because other mods may not have registered their entities during our init.
+	public Set<EntityType<?>> nameTagEntities() {
+		if (this.nameTagEntitySet == null) {
+			Set<EntityType<?>> types = new ReferenceOpenHashSet<>();
+
+			for (String name : this.nameTagEntityIds) {
+				Identifier id = Identifier.tryParse(name);
+
+				if (id != null && BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
+					types.add(BuiltInRegistries.ENTITY_TYPE.getValue(id));
+				}
+			}
+
+			this.nameTagEntitySet = types;
+		}
+
+		return this.nameTagEntitySet;
+	}
+
+	public Set<Block> nameTagBlocks() {
+		if (this.nameTagBlockSet == null) {
+			Set<Block> blocks = new ReferenceOpenHashSet<>();
+
+			for (String name : this.nameTagBlockIds) {
+				Identifier id = Identifier.tryParse(name);
+
+				if (id != null && BuiltInRegistries.BLOCK.containsKey(id)) {
+					blocks.add(BuiltInRegistries.BLOCK.getValue(id));
+				}
+			}
+
+			this.nameTagBlockSet = blocks;
+		}
+
+		return this.nameTagBlockSet;
 	}
 
 	public boolean isMobHighlighted(EntityType<?> type) {
