@@ -15,6 +15,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 
+import com.basetracer.AutoWeapon;
 import com.basetracer.SmartTool;
 
 @Mixin(MultiPlayerGameMode.class)
@@ -39,6 +40,7 @@ public abstract class MultiPlayerGameModeMixin {
 	private void basetracer$smartToolAttack(Player player, Entity target, CallbackInfo ci) {
 		if (player instanceof LocalPlayer localPlayer) {
 			SmartTool.attack(localPlayer, target);
+			AutoWeapon.attack(localPlayer, target);
 		}
 	}
 

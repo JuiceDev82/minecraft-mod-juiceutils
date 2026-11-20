@@ -30,6 +30,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.level.block.Block;
@@ -64,6 +65,7 @@ import com.basetracer.MobWarning;
 import com.basetracer.ModuleSplash;
 import com.basetracer.BaseTracerClient;
 import com.basetracer.BaseTracerConfig;
+import com.basetracer.SettingsTransfer;
 import com.basetracer.BaseTracerConfigScreen;
 import com.basetracer.BaseTracerExcludedBlocksScreen;
 import com.basetracer.BaseTracerModMenu;
@@ -127,6 +129,10 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			testAutoEat(context, server);
 			testQuickUse(context, server);
 			testAutoTotem(context, server);
+			testAutoArmor(context, server);
+			testAutoWeapon(context, server);
+			testSettingsTransfer(context);
+			testFoodResupply(context, server);
 			testNameTags(context, server);
 			testTakeAll(context, server);
 			testCustomRule(context, server);
@@ -514,11 +520,18 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		});
 	}
 
+	/** Each section of the splash as "Title: entry, entry". */
+	private static List<String> splashText(List<ModuleSplash.Group> groups) {
+		return groups.stream().map(group -> group.title().getString() + ": "
+				+ String.join(", ", group.entries().stream().map(Component::getString).toList())).toList();
+	}
+
 	private static void testModuleSplash(ClientGameTestContext context) {
 		// What's listed follows the settings, with empty rules left out.
-		List<String> lines = context.computeOnClient(client -> ModuleSplash.lines(BaseTracerClient.CONFIG, false).stream().map(Component::getString).toList());
-		check(lines.size() == 2 && lines.getFirst().startsWith("Base Tracer: Chunk Highlights · Block Highlights") && lines.get(1).contains("Player Storage"), "Splash is missing modules or rules: " + lines);
-		check(!lines.getFirst().contains("Mob Highlights") && !lines.get(1).contains("Custom") && !lines.getFirst().contains("Free Look"), "Splash lists something that's off: " + lines);
+		List<String> lines = context.computeOnClient(client -> splashText(ModuleSplash.groups(BaseTracerClient.CONFIG, false)));
+		check(lines.getFirst().startsWith("Bases: Chunk Highlights, Block Highlights") && lines.get(1).startsWith("Finding: ") && lines.get(1).contains("Player Storage"), "Splash is missing modules or rules: " + lines);
+		check(lines.stream().noneMatch(line -> line.contains("Mob Highlights") || line.contains("Custom") || line.contains("Free Look")), "Splash lists something that's off: " + lines);
+		check(lines.stream().anyMatch(line -> line.startsWith("Tools: ") && line.contains("Auto Armor")), "Splash should group the tools: " + lines);
 		BaseTracerConfig allOff = new BaseTracerConfig();
 		allOff.showChunkHighlights = false;
 		allOff.showBlockHighlights = false;
@@ -529,8 +542,10 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		allOff.smartTool = false;
 		allOff.autoEat = false;
 		allOff.autoTotem = false;
-		List<String> none = context.computeOnClient(client -> ModuleSplash.lines(allOff, false).stream().map(Component::getString).toList());
-		check(none.equals(List.of("Base Tracer: No modules on")), "Wrong splash with everything off: " + none);
+		allOff.autoArmor = false;
+		allOff.autoWeapon = false;
+		List<String> none = context.computeOnClient(client -> splashText(ModuleSplash.groups(allOff, false)));
+		check(none.isEmpty(), "Splash should have no sections with everything off: " + none);
 
 		// Turning the mod on shows it. Turning it off doesn't, and nor does changing a module or Free Look.
 		context.waitFor(client -> !BaseTracerClient.SPLASH.isShowing(), TIMEOUT_TICKS);
@@ -1627,7 +1642,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.waitTicks(40);
 		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.SHIELD)), "A shield in the offhand shouldn't be swapped for a totem");
 
-		// Taking the shield out: after the wait, a totem goes in.
+		// Taking the shield out: after the wait, a totem goes in, and the inventory is closed after.
+		int totemCloses = context.computeOnClient(client -> com.basetracer.InventoryClicks.closesSent());
 		server.runCommand("item replace entity @a weapon.offhand with minecraft:air");
 		context.waitTicks(10);
 		check(context.computeOnClient(client -> client.player.getOffhandItem().isEmpty()), "The totem shouldn't go in before the wait");
@@ -1639,6 +1655,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			return player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && inventory.getItem(14).isEmpty()
 					&& inventory.getItem(29).is(Items.TOTEM_OF_UNDYING) && inventory.getItem(0).is(Items.IRON_SWORD);
 		}), "On the server, the totem should be in the offhand and the sword kept");
+		check(context.computeOnClient(client -> com.basetracer.InventoryClicks.closesSent()) == totemCloses + 1, "The inventory should be closed after a totem goes in");
 
 		// It pops, and after the wait the second one goes in.
 		server.runCommand("damage @p 100 minecraft:generic");
@@ -1683,6 +1700,310 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		// Back to full food too, so that later tests can count on natural healing.
 		server.runCommand("effect give @a minecraft:saturation 1 20");
 		context.runOnClient(client -> BaseTracerClient.CONFIG.autoTotemDelay = 5);
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
+	}
+
+	/** Presses a button inside the open screen's list, which the test context's own clicking doesn't reach. */
+	private static void pressListButton(ClientGameTestContext context, String label) {
+		boolean pressed = context.computeOnClient(client -> {
+			java.util.ArrayDeque<net.minecraft.client.gui.components.events.GuiEventListener> queue = new java.util.ArrayDeque<>(client.gui.screen().children());
+
+			while (!queue.isEmpty()) {
+				var child = queue.poll();
+
+				if (child instanceof net.minecraft.client.gui.components.Button button && button.getMessage().getString().equals(label)) {
+					button.onPress(new net.minecraft.client.input.KeyEvent(GLFW.GLFW_KEY_ENTER, 0, 0));
+					return true;
+				}
+
+				if (child instanceof net.minecraft.client.gui.components.events.ContainerEventHandler container) {
+					queue.addAll(container.children());
+				}
+			}
+
+			return false;
+		});
+		check(pressed, "No button labelled " + label);
+	}
+
+	private static int hotbarSlotOf(net.minecraft.world.entity.player.Inventory inventory, net.minecraft.world.item.Item item) {
+		for (int slot = 0; slot < 9; slot++) {
+			if (inventory.getItem(slot).is(item)) {
+				return slot;
+			}
+		}
+
+		return -1;
+	}
+
+	private static void testFoodResupply(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.autoEatResupply), "Food resupply should start on");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+
+		// Food in the hotbar: nothing moves.
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:bread");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:stone");
+		server.runCommand("item replace entity @a inventory.10 with minecraft:cooked_beef 5");
+		context.waitTicks(20);
+		check(context.computeOnClient(client -> client.player.getInventory().getItem(19).is(Items.COOKED_BEEF)), "Nothing should move while the hotbar has food");
+
+		int closes = context.computeOnClient(client -> com.basetracer.InventoryClicks.closesSent());
+		// Out of food in the hotbar: the best food, ahead of the golden apple, goes into an empty hotbar slot (the one last
+		// eaten from if that's empty, which an earlier test may have set).
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:air");
+		server.runCommand("item replace entity @a inventory.2 with minecraft:golden_apple");
+		server.runCommand("item replace entity @a inventory.20 with minecraft:bread 3");
+		context.waitFor(client -> hotbarSlotOf(client.player.getInventory(), Items.COOKED_BEEF) >= 0, TIMEOUT_TICKS);
+		int beefSlot = context.computeOnClient(client -> hotbarSlotOf(client.player.getInventory(), Items.COOKED_BEEF));
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> {
+			var inventory = minecraftServer.getPlayerList().getPlayers().getFirst().getInventory();
+			return inventory.getItem(beefSlot).is(Items.COOKED_BEEF) && inventory.getItem(beefSlot).getCount() == 5 && inventory.getItem(19).isEmpty()
+					&& inventory.getItem(0).is(Items.STONE) && inventory.getItem(11).is(Items.GOLDEN_APPLE) && inventory.getItem(29).is(Items.BREAD);
+		}), "On the server, the steak should be in the hotbar and the rest left alone");
+		// The move is followed by closing the inventory, as anticheats expect.
+		check(context.computeOnClient(client -> com.basetracer.InventoryClicks.closesSent()) == closes + 1, "The inventory should be closed after moving food");
+
+		// Turned off, nothing moves.
+		context.runOnClient(client -> BaseTracerClient.CONFIG.autoEatResupply = false);
+		server.runCommand("item replace entity @a hotbar." + beefSlot + " with minecraft:air");
+		context.waitTicks(20);
+		check(context.computeOnClient(client -> client.player.getInventory().getItem(29).is(Items.BREAD)), "Food shouldn't move while resupply is off");
+		context.runOnClient(client -> BaseTracerClient.CONFIG.autoEatResupply = true);
+
+		// With only golden apples left, the plain one comes down first, and the enchanted one stays put.
+		server.runCommand("clear @a");
+		server.runCommand("item replace entity @a inventory.4 with minecraft:enchanted_golden_apple");
+		server.runCommand("item replace entity @a inventory.8 with minecraft:golden_apple 2");
+		context.waitFor(client -> hotbarSlotOf(client.player.getInventory(), Items.GOLDEN_APPLE) >= 0, TIMEOUT_TICKS);
+		context.waitTicks(20);
+		check(context.computeOnClient(client -> client.player.getInventory().getItem(13).is(Items.ENCHANTED_GOLDEN_APPLE)
+				&& hotbarSlotOf(client.player.getInventory(), Items.ENCHANTED_GOLDEN_APPLE) < 0), "The enchanted golden apple should wait while there's other food");
+
+		// Once nothing else is left, the enchanted one comes down too, and only once.
+		int appleSlot = context.computeOnClient(client -> hotbarSlotOf(client.player.getInventory(), Items.GOLDEN_APPLE));
+		server.runCommand("item replace entity @a hotbar." + appleSlot + " with minecraft:air");
+		server.runCommand("item replace entity @a inventory.20 with minecraft:enchanted_golden_apple");
+		context.waitFor(client -> hotbarSlotOf(client.player.getInventory(), Items.ENCHANTED_GOLDEN_APPLE) >= 0, TIMEOUT_TICKS);
+		context.waitTicks(20);
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.ENCHANTED_GOLDEN_APPLE) == 2
+				&& (client.player.getInventory().getItem(13).is(Items.ENCHANTED_GOLDEN_APPLE) || client.player.getInventory().getItem(29).is(Items.ENCHANTED_GOLDEN_APPLE))),
+				"Only one enchanted golden apple should come down");
+
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
+	}
+
+	private static void testSettingsTransfer(ClientGameTestContext context) {
+		// Exported as they are now, then changed, then imported back.
+		int oldPriority = context.computeOnClient(client -> BaseTracerClient.CONFIG.rules.getFirst().priority);
+		java.nio.file.Path file = context.computeOnClient(client -> {
+			BaseTracerClient.CONFIG.autoTotemHealth = 6;
+			BaseTracerClient.CONFIG.nameTagRange = 40;
+			BaseTracerClient.CONFIG.rules.getFirst().priority = 9;
+			BaseTracerClient.CONFIG.markRulesChanged();
+			com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.tools").setKey(InputConstants.Type.KEYSYM.getOrCreate(GLFW.GLFW_KEY_K));
+			KeyMapping.resetMapping();
+
+			try {
+				return SettingsTransfer.export();
+			} catch (java.io.IOException e) {
+				throw new RuntimeException(e);
+			}
+		});
+		check(context.computeOnClient(client -> SettingsTransfer.exports().contains(file)), "The export should be listed");
+		String firstRule = context.computeOnClient(client -> BaseTracerClient.CONFIG.rules.getFirst().name);
+		int ruleCount = context.computeOnClient(client -> BaseTracerClient.CONFIG.rules.size());
+
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.autoTotemHealth = 2;
+			BaseTracerClient.CONFIG.nameTagRange = 16;
+			BaseTracerClient.CONFIG.rules.clear();
+			BaseTracerClient.CONFIG.markRulesChanged();
+			com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.tools").setKey(InputConstants.UNKNOWN);
+			KeyMapping.resetMapping();
+		});
+
+		// Through the screen, as a player would.
+		context.setScreen(() -> new BaseTracerModMenu().getModConfigScreenFactory().create(null));
+		context.waitTicks(2);
+		pressListButton(context, "Import Settings...");
+		context.waitTicks(2);
+		context.takeScreenshot("basetracer_import");
+		pressListButton(context, file.getFileName().toString().replace(".properties", ""));
+		context.waitFor(client -> client.gui.screen() instanceof com.basetracer.BaseTracerConfigScreen, TIMEOUT_TICKS);
+		context.setScreen(() -> null);
+
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.autoTotemHealth == 6 && BaseTracerClient.CONFIG.nameTagRange == 40),
+				"Imported settings should be back");
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.rules.size() == ruleCount
+				&& BaseTracerClient.CONFIG.rules.getFirst().name.equals(firstRule) && BaseTracerClient.CONFIG.rules.getFirst().priority == 9),
+				"Imported rules should be back");
+		check(context.computeOnClient(client -> com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.tools").saveString().equals("key.keyboard.k")),
+				"Imported keys should be back");
+		// The settings before the import were kept too, and the saved file has the imported ones.
+		check(context.computeOnClient(client -> SettingsTransfer.exports().stream().anyMatch(path -> path.getFileName().toString().startsWith("before-import_"))),
+				"Settings before an import should be saved");
+		check(context.computeOnClient(client -> BaseTracerConfig.load(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir()).autoTotemHealth == 6),
+				"The imported settings should be saved");
+
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.autoTotemHealth = 4;
+			BaseTracerClient.CONFIG.nameTagRange = 32;
+			BaseTracerClient.CONFIG.rules.getFirst().priority = oldPriority;
+			BaseTracerClient.CONFIG.markRulesChanged();
+			BaseTracerClient.applyRuleChanges();
+			com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.tools").setKey(InputConstants.UNKNOWN);
+			KeyMapping.resetMapping();
+		});
+	}
+
+	/** Hits an entity of this type as the player would, and returns the slot selected for the hit. */
+	private static int hitTagged(ClientGameTestContext context, net.minecraft.world.entity.EntityType<?> type) {
+		return context.computeOnClient(client -> {
+			Entity target = java.util.stream.StreamSupport.stream(client.level.entitiesForRendering().spliterator(), false)
+					.filter(entity -> entity.getType() == type)
+					.findFirst()
+					.orElseThrow();
+			client.gameMode.attack(client.player, target);
+			client.player.resetAttackStrengthTicker();
+			return client.player.getInventory().getSelectedSlot();
+		});
+	}
+
+	private static void testAutoWeapon(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.autoWeapon && BaseTracerClient.CONFIG.autoWeaponReturn == 60), "Auto weapon should start on, switching back after 3 seconds");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:torch");
+		server.runCommand("item replace entity @a hotbar.1 with minecraft:netherite_axe");
+		server.runCommand("item replace entity @a hotbar.2 with minecraft:diamond_sword");
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:iron_sword[enchantments={\"minecraft:sharpness\":5}]");
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:golden_sword[enchantments={\"minecraft:smite\":5}]");
+		server.runCommand("item replace entity @a hotbar.5 with minecraft:mace");
+		server.runCommand("summon minecraft:cow 10.5 100 8.5 {NoAI:1b,NoGravity:1b,Invulnerable:1b,Tags:[\"weapon_cow\"]}");
+		server.runCommand("summon minecraft:zombie 10.5 100 9.5 {NoAI:1b,NoGravity:1b,Invulnerable:1b,Tags:[\"weapon_zombie\"]}");
+		server.runCommand("summon minecraft:armor_stand 10.5 100 7.5 {NoGravity:1b,Tags:[\"weapon_stand\"]}");
+		context.runOnClient(client -> {
+			client.player.getInventory().setSelectedSlot(0);
+			BaseTracerClient.CONFIG.autoWeaponReturn = 20;
+		});
+		context.waitTicks(10);
+
+		// The best sword: Sharpness V iron beats plain diamond, and the netherite axe loses to any sword.
+		check(hitTagged(context, net.minecraft.world.entity.EntityTypes.COW) == 3, "A cow should be hit with the Sharpness sword");
+		// Against the undead, Smite counts.
+		check(hitTagged(context, net.minecraft.world.entity.EntityTypes.ZOMBIE) == 4, "A zombie should be hit with the Smite sword");
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().getSelectedSlot() == 4),
+				"The server should have the sword selected");
+
+		// After a second without hitting, the torch is back.
+		context.waitFor(client -> client.player.getInventory().getSelectedSlot() == 0, TIMEOUT_TICKS);
+
+		// An armor stand isn't a fight, and a mace in hand is kept.
+		check(hitTagged(context, net.minecraft.world.entity.EntityTypes.ARMOR_STAND) == 0, "Hitting an armor stand shouldn't switch");
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(5));
+		check(hitTagged(context, net.minecraft.world.entity.EntityTypes.COW) == 5, "A mace in hand should be kept");
+
+		// With no sword, the axe.
+		server.runCommand("item replace entity @a hotbar.2 with minecraft:air");
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:air");
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:air");
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(0));
+		context.waitTicks(5);
+		check(hitTagged(context, net.minecraft.world.entity.EntityTypes.COW) == 1, "With no sword the axe should be used");
+
+		// Turned off, nothing switches.
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.autoWeapon = false;
+			client.player.getInventory().setSelectedSlot(0);
+		});
+		check(hitTagged(context, net.minecraft.world.entity.EntityTypes.COW) == 0, "Auto weapon shouldn't switch while off");
+
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.autoWeapon = true;
+			BaseTracerClient.CONFIG.autoWeaponReturn = 60;
+		});
+		server.runCommand("kill @e[tag=weapon_cow]");
+		server.runCommand("kill @e[tag=weapon_zombie]");
+		server.runCommand("kill @e[tag=weapon_stand]");
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
+	}
+
+	private static void testAutoArmor(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.autoArmor), "Auto armor should start on");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+
+		// Head: Protection IV diamond beats bare netherite, which beats the leather being worn and the iron.
+		server.runCommand("item replace entity @a armor.head with minecraft:leather_helmet");
+		server.runCommand("item replace entity @a inventory.0 with minecraft:iron_helmet");
+		server.runCommand("item replace entity @a inventory.1 with minecraft:netherite_helmet");
+		server.runCommand("item replace entity @a inventory.2 with minecraft:diamond_helmet[enchantments={\"minecraft:protection\":4}]");
+		// Chest: while an elytra is worn, no chestplate goes on.
+		server.runCommand("item replace entity @a armor.chest with minecraft:elytra");
+		server.runCommand("item replace entity @a inventory.3 with minecraft:diamond_chestplate");
+		// Legs: from the hotbar into an empty slot.
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:iron_leggings");
+		// Feet: Curse of Binding is never put on, so the worse leather boots are.
+		server.runCommand("item replace entity @a inventory.5 with minecraft:diamond_boots[enchantments={\"minecraft:binding_curse\":1}]");
+		server.runCommand("item replace entity @a inventory.6 with minecraft:leather_boots");
+
+		int armorCloses = context.computeOnClient(client -> com.basetracer.InventoryClicks.closesSent());
+		// Not instant: the first piece waits half a second, and each after it another half second.
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.getItemBySlot(EquipmentSlot.HEAD).is(Items.LEATHER_HELMET)), "The first piece shouldn't go on straight away");
+		context.waitFor(client -> client.player.getItemBySlot(EquipmentSlot.HEAD).is(Items.DIAMOND_HELMET), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.getItemBySlot(EquipmentSlot.LEGS).isEmpty()), "The next piece shouldn't follow straight away");
+		context.waitFor(client -> client.player.getItemBySlot(EquipmentSlot.HEAD).is(Items.DIAMOND_HELMET)
+				&& client.player.getItemBySlot(EquipmentSlot.LEGS).is(Items.IRON_LEGGINGS)
+				&& client.player.getItemBySlot(EquipmentSlot.FEET).is(Items.LEATHER_BOOTS), TIMEOUT_TICKS);
+		context.waitTicks(20);
+		check(server.computeOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			var inventory = player.getInventory();
+			return player.getItemBySlot(EquipmentSlot.HEAD).is(Items.DIAMOND_HELMET)
+					&& player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)
+					&& player.getItemBySlot(EquipmentSlot.LEGS).is(Items.IRON_LEGGINGS)
+					&& player.getItemBySlot(EquipmentSlot.FEET).is(Items.LEATHER_BOOTS)
+					&& inventory.countItem(Items.LEATHER_HELMET) == 1 && inventory.countItem(Items.NETHERITE_HELMET) == 1
+					&& inventory.countItem(Items.IRON_HELMET) == 1 && inventory.countItem(Items.DIAMOND_CHESTPLATE) == 1
+					&& inventory.countItem(Items.DIAMOND_BOOTS) == 1 && inventory.getItem(4).isEmpty();
+		}), "On the server, the best armor should be worn, the elytra kept and everything else still in the inventory");
+		check(context.computeOnClient(client -> com.basetracer.InventoryClicks.closesSent()) == armorCloses + 3, "The inventory should be closed after each piece");
+
+		// Taking the elytra off lets the chestplate go on.
+		server.runCommand("item replace entity @a armor.chest with minecraft:air");
+		context.waitFor(client -> client.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.DIAMOND_CHESTPLATE), TIMEOUT_TICKS);
+
+		// Turned off, nothing changes.
+		context.runOnClient(client -> BaseTracerClient.CONFIG.autoArmor = false);
+		server.runCommand("item replace entity @a armor.legs with minecraft:air");
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:iron_leggings");
+		context.waitTicks(20);
+		check(context.computeOnClient(client -> client.player.getItemBySlot(EquipmentSlot.LEGS).isEmpty()), "Auto armor shouldn't act while off");
+		context.runOnClient(client -> BaseTracerClient.CONFIG.autoArmor = true);
+
 		server.runCommand("clear @a");
 		server.runCommand("gamemode spectator @a");
 		server.runCommand("setblock 8 99 8 minecraft:air");
@@ -1827,7 +2148,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.waitTicks(5);
 		context.takeScreenshot("basetracer_items_mob_drops");
 
-		check(context.computeOnClient(client -> ModuleSplash.lines(BaseTracerClient.CONFIG, false).getFirst().getString().contains("Item Highlights (Mob Drops)")), "Splash should list item highlights");
+		check(context.computeOnClient(client -> splashText(ModuleSplash.groups(BaseTracerClient.CONFIG, false)).stream().anyMatch(line -> line.startsWith("Items & Tags: Item Highlights (Mob Drops)"))), "Splash should list item highlights");
 		context.runOnClient(client -> {
 			BaseTracerClient.CONFIG.showItems = false;
 			BaseTracerClient.CONFIG.itemMode = ItemMode.ALL;
@@ -1972,7 +2293,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.takeScreenshot("basetracer_xray_on");
 
 		// The splash lists it, and turning the mod off turns it off too.
-		check(context.computeOnClient(client -> ModuleSplash.lines(BaseTracerClient.CONFIG, false).getFirst().getString().contains("X-Ray")), "Splash should list X-Ray");
+		check(context.computeOnClient(client -> splashText(ModuleSplash.groups(BaseTracerClient.CONFIG, false)).stream().anyMatch(line -> line.startsWith("View: X-Ray"))), "Splash should list X-Ray");
 		context.runOnClient(client -> BaseTracerClient.CONFIG.enabled = false);
 		context.waitFor(client -> !XRay.isActive(), TIMEOUT_TICKS);
 		check(context.computeOnClient(client -> regionState(client, stone).is(Blocks.STONE)), "X-Ray should be off with the mod");
@@ -2229,6 +2550,10 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			reloaded.setNameTagBlock(Blocks.CHEST, true);
 			reloaded.autoTotemDelay = 40;
 			reloaded.autoTotemHealth = 7;
+			reloaded.autoArmor = false;
+			reloaded.autoWeapon = false;
+			reloaded.autoWeaponReturn = 0;
+			reloaded.autoEatResupply = false;
 			reloaded.takeAllDelay = 4;
 			reloaded.putAllHotbar = true;
 			reloaded.playerAlerts = false;
@@ -2260,7 +2585,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			check(!withRules.smartTool && withRules.smartToolDelay == 20, "Smart tool settings lost on reload");
 			check(!withRules.autoEat && withRules.autoEatHunger == 6 && withRules.autoEatHealth == 30, "Auto eat settings lost on reload");
 			check(withRules.quickUseAction == QuickUseAction.POTION, "Quick use action lost on reload");
-			check(!withRules.autoTotem && withRules.autoTotemDelay == 40 && withRules.autoTotemHealth == 7, "Auto totem settings lost on reload");
+			check(!withRules.autoTotem && withRules.autoTotemDelay == 40 && withRules.autoTotemHealth == 7 && !withRules.autoArmor && !withRules.autoWeapon && withRules.autoWeaponReturn == 0 && !withRules.autoEatResupply, "Auto totem settings lost on reload");
 			check(!withRules.nameTags && withRules.nameTagRange == 48 && withRules.isNameTagged(net.minecraft.world.entity.EntityTypes.ACACIA_BOAT)
 					&& withRules.nameTagBlocks().contains(Blocks.CHEST) && !withRules.nameTagBlocks().contains(Blocks.STONE), "Name tag settings lost on reload");
 			check(!withRules.takeAll && withRules.takeAllDelay == 4 && withRules.putAllHotbar
@@ -2378,6 +2703,16 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.setScreen(() -> new BaseTracerModMenu().getModConfigScreenFactory().create(null));
 		context.waitTicks(5);
 		context.takeScreenshot("basetracer_section_keys");
+		// The Tools section, grouped under its sub-headings.
+		for (int i = 1; i <= 3; i++) {
+			int step = i;
+			context.runOnClient(client -> client.gui.screen().children().stream()
+					.filter(child -> child instanceof net.minecraft.client.gui.components.OptionsList)
+					.map(child -> (net.minecraft.client.gui.components.OptionsList) child)
+					.forEach(list -> list.setScrollAmount(list.maxScrollAmount() - (3 - step) * 140)));
+			context.waitTicks(2);
+			context.takeScreenshot("basetracer_tools_" + step);
+		}
 		context.setScreen(() -> null);
 		context.runOnClient(client -> {
 			com.basetracer.BaseTracerConfigScreen.sectionKey(client.options, "options.basetracer.section.bases").setKey(InputConstants.UNKNOWN);
@@ -2396,7 +2731,9 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		config.autoEat = false;
 		config.takeAll = false;
 		config.autoTotem = false;
-		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll, "Tools should all turn on");
+		config.autoArmor = false;
+		config.autoWeapon = false;
+		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll && config.autoArmor && config.autoWeapon, "Tools should all turn on");
 		SectionToggle.forgetAll();
 	}
 

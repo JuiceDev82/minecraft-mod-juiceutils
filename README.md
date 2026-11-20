@@ -22,9 +22,14 @@ Because the mod is client-only, it works on any server. The server doesn't need 
   prefers Silk Touch for glass and ender chests, uses an axe on boats, and switches back to your previous item when you
   let go.
 - **Auto Eat:** eats the best food in your hotbar when your hunger drops to a level you choose, or when your health is
-  low.
+  low. When your hotbar runs out of food, it moves the best food from the rest of your inventory into it.
 - **Auto Totem:** keeps a totem of undying in your offhand, waiting a time you choose after one pops. A shield in your
   offhand stays until you take it out, unless your health drops below a level you choose.
+- **Auto Armor:** wears the best armor in your inventory, counting protection enchantments, one piece every half second.
+  While an elytra is on, no chestplate goes on. Anything with Curse of Binding is never put on.
+- **Auto Weapon:** when you hit a mob or player, switches to the best sword in your hotbar, or the best axe if you have
+  no sword. Sharpness counts, and Smite or Bane of Arthropods against the mobs they work on. Switches back after a time
+  you choose without hitting anything.
 - **Quick Use:** one key throws an ender pearl, drinks a potion or eats an enchanted golden apple, then switches back to
   your previous item.
 - **Take All / Put All:** buttons on chests, barrels, shulker boxes, hoppers, dispensers and droppers to move everything
@@ -44,6 +49,13 @@ Searching "basetracer" under Options → Controls lists all of the mod's keys.
 
 You can change these under Options → Controls. Every feature can be adjusted or turned off in the mod's settings, which
 open from [Mod Menu](https://modrinth.com/mod/modmenu).
+
+## Saving your settings
+
+**Export Settings**, at the top of the mod's settings, saves everything to a file in `config/basetracer-exports`. That
+includes every option, your base rules and lists, and the mod's keys. **Import Settings...** lists those files and loads
+the one you click. Your settings from just before the import are saved there too, as `before-import_...`, so an
+import can be undone. Copy the files to another computer to take your setup with you.
 
 ## Installing
 

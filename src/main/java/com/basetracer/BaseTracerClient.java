@@ -164,6 +164,8 @@ public class BaseTracerClient implements ClientModInitializer {
 			TakeAll.tick(client);
 			AutoEat.tick(client);
 			AutoTotem.tick(client);
+			AutoArmor.tick(client);
+			AutoWeapon.tick(client);
 			NAME_TAGS.tick(client);
 
 			while (quickUseKey.consumeClick()) {

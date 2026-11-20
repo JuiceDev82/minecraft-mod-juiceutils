@@ -86,6 +86,7 @@ public final class AutoTotem {
 		}
 
 		client.gameMode.handleContainerInput(player.inventoryMenu.containerId, menuSlot(slot), OFFHAND_BUTTON, ContainerInput.SWAP, player);
+		InventoryClicks.finish(client, player);
 		int left = player.getInventory().countItem(Items.TOTEM_OF_UNDYING) - 1;
 		player.sendOverlayMessage(Component.translatable("message.basetracer.autoTotem.equipped", left).withStyle(ChatFormatting.GOLD));
 		missingSince = -1;

@@ -40,6 +40,13 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 		BaseTracerConfig config = BaseTracerClient.CONFIG;
 
 		this.list.addBig(OptionInstance.createBoolean("options.basetracer.enabled", config.enabled, value -> config.enabled = value));
+		this.list.addSmall(
+				Button.builder(Component.translatable("options.basetracer.export"), button -> this.exportSettings()).build(),
+				Button.builder(
+						Component.translatable("options.basetracer.import"),
+						button -> this.minecraft.gui.setScreen(new SettingsImportScreen(this, this.lastScreen))
+				).build()
+		);
 
 		this.addSection("options.basetracer.section.bases");
 		this.list.addSmall(
@@ -152,6 +159,7 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 		);
 
 		this.addSection("options.basetracer.section.tools");
+		this.addSubsection("options.basetracer.subsection.mining");
 		this.list.addSmall(
 				OptionInstance.createBoolean("options.basetracer.smartTool", config.smartTool, value -> config.smartTool = value),
 				new OptionInstance<>(
@@ -163,6 +171,7 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 						value -> config.smartToolDelay = value
 				)
 		);
+		this.addSubsection("options.basetracer.subsection.food");
 		this.list.addSmall(
 				OptionInstance.createBoolean("options.basetracer.autoEat", config.autoEat, value -> config.autoEat = value),
 				new OptionInstance<>(
@@ -184,6 +193,31 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 				config.autoEatHealth,
 				value -> config.autoEatHealth = value
 		));
+		this.list.addBig(OptionInstance.createBoolean(
+				"options.basetracer.autoEatResupply",
+				OptionInstance.cachedConstantTooltip(Component.translatable("options.basetracer.autoEatResupply.tooltip")),
+				config.autoEatResupply,
+				value -> config.autoEatResupply = value
+		));
+		this.addSubsection("options.basetracer.subsection.combat");
+		this.list.addSmall(
+				OptionInstance.createBoolean(
+						"options.basetracer.autoWeapon",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.basetracer.autoWeapon.tooltip")),
+						config.autoWeapon,
+						value -> config.autoWeapon = value
+				),
+				new OptionInstance<>(
+						"options.basetracer.autoWeaponReturn",
+						OptionInstance.noTooltip(),
+						(caption, value) -> Options.genericValueLabel(caption, value == 0
+								? Component.translatable("options.basetracer.autoWeaponReturn.never")
+								: Component.translatable("options.basetracer.seconds", String.format(java.util.Locale.ROOT, "%.2f", value / 20.0))),
+						new OptionInstance.IntRange(0, BaseTracerConfig.MAX_AUTO_WEAPON_RETURN, true),
+						config.autoWeaponReturn,
+						value -> config.autoWeaponReturn = value
+				)
+		);
 		this.list.addSmall(
 				OptionInstance.createBoolean("options.basetracer.autoTotem", config.autoTotem, value -> config.autoTotem = value),
 				new OptionInstance<>(
@@ -207,10 +241,19 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 				config.autoTotemHealth,
 				value -> config.autoTotemHealth = value
 		));
-		// The key itself is set in Controls, with the others.
-		this.list.addBig(CycleButton.builder(QuickUseAction::label, config.quickUseAction)
-				.withValues(QuickUseAction.values())
-				.create(Component.translatable("options.basetracer.quickUseAction"), (button, value) -> config.quickUseAction = value));
+		// The Quick Use key itself is set in Controls, with the others.
+		this.list.addSmall(
+				OptionInstance.createBoolean(
+						"options.basetracer.autoArmor",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.basetracer.autoArmor.tooltip")),
+						config.autoArmor,
+						value -> config.autoArmor = value
+				).createButton(this.minecraft.options),
+				CycleButton.builder(QuickUseAction::label, config.quickUseAction)
+						.withValues(QuickUseAction.values())
+						.create(Component.translatable("options.basetracer.quickUseAction"), (button, value) -> config.quickUseAction = value)
+		);
+		this.addSubsection("options.basetracer.subsection.storage");
 		this.list.addSmall(
 				OptionInstance.createBoolean("options.basetracer.takeAll", config.takeAll, value -> config.takeAll = value),
 				new OptionInstance<>(
@@ -265,6 +308,11 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 	}
 
 	/** Styled apart from the headers above color fields, which use the same kind of row. */
+	/** A group within a section, quieter than a section's title. */
+	private void addSubsection(String key) {
+		this.list.addHeader(Component.translatable(key).withStyle(ChatFormatting.GRAY, ChatFormatting.UNDERLINE));
+	}
+
 	/** A section's title, with the key that toggles it beside it, if it has one, so shortcuts can be seen at a glance. */
 	private void addSection(String key) {
 		MutableComponent header = Component.translatable(key).withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD);
@@ -318,6 +366,22 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 
 		list.addHeader(label);
 		list.addSmall(box, new ColorSwatchWidget(150, 20, label, box::getValue));
+	}
+
+	private void exportSettings() {
+		BaseTracerClient.CONFIG.save();
+
+		try {
+			java.nio.file.Path file = SettingsTransfer.export();
+			net.minecraft.client.gui.components.toasts.SystemToast.addOrUpdate(this.minecraft.gui.toastManager(),
+					net.minecraft.client.gui.components.toasts.SystemToast.SystemToastId.PERIODIC_NOTIFICATION,
+					Component.translatable("options.basetracer.export.done"), Component.literal(file.getFileName().toString()));
+		} catch (java.io.IOException e) {
+			BaseTracerClient.LOGGER.error("Failed to export settings", e);
+			net.minecraft.client.gui.components.toasts.SystemToast.addOrUpdate(this.minecraft.gui.toastManager(),
+					net.minecraft.client.gui.components.toasts.SystemToast.SystemToastId.PERIODIC_NOTIFICATION,
+					Component.translatable("options.basetracer.export.failed").withStyle(ChatFormatting.RED), Component.literal(String.valueOf(e.getMessage())));
+		}
 	}
 
 	@Override

@@ -39,6 +39,7 @@ public final class BaseTracerConfig {
 	public static final int MAX_TAKE_ALL_DELAY = 10;
 	public static final int MAX_AUTO_TOTEM_DELAY = 100;
 	public static final int MAX_AUTO_TOTEM_HEALTH = 10;
+	public static final int MAX_AUTO_WEAPON_RETURN = 200;
 	public static final int MIN_NAME_TAG_RANGE = 8;
 	public static final int MAX_NAME_TAG_RANGE = 64;
 	public static final int MAX_MOB_WARNING_DISTANCE = 32;
@@ -138,8 +139,14 @@ public final class BaseTracerConfig {
 	/** Ticks of mining before the tool is switched, so that a misclick doesn't switch it. */
 	public int smartToolDelay = 10;
 	public boolean autoEat = true;
+	/** Whether food from the rest of the inventory is moved into the hotbar once the hotbar has none. */
+	public boolean autoEatResupply = true;
 	public QuickUseAction quickUseAction = QuickUseAction.ENDER_PEARL;
 	public boolean autoTotem = true;
+	public boolean autoArmor = true;
+	public boolean autoWeapon = true;
+	/** Ticks without hitting anything before the slot from before the weapon comes back. 0 keeps the weapon. */
+	public int autoWeaponReturn = 60;
 	public boolean nameTags = true;
 	/** Blocks from the camera that name tags reach. */
 	public int nameTagRange = 32;
@@ -240,6 +247,12 @@ public final class BaseTracerConfig {
 			return config;
 		}
 
+		return fromProperties(properties);
+	}
+
+	/** Settings read from properties as {@link #toProperties} writes them, with defaults for anything missing. */
+	public static BaseTracerConfig fromProperties(Properties properties) {
+		BaseTracerConfig config = new BaseTracerConfig();
 		config.enabled = Boolean.parseBoolean(properties.getProperty("enabled", String.valueOf(config.enabled)));
 		config.showChunkHighlights = Boolean.parseBoolean(properties.getProperty("showChunkHighlights", String.valueOf(config.showChunkHighlights)));
 		config.showTracers = Boolean.parseBoolean(properties.getProperty("showTracers", String.valueOf(config.showTracers)));
@@ -269,6 +282,9 @@ public final class BaseTracerConfig {
 		config.autoEat = Boolean.parseBoolean(properties.getProperty("autoEat", String.valueOf(config.autoEat)));
 		config.takeAll = Boolean.parseBoolean(properties.getProperty("takeAll", String.valueOf(config.takeAll)));
 		config.autoTotem = Boolean.parseBoolean(properties.getProperty("autoTotem", String.valueOf(config.autoTotem)));
+		config.autoArmor = Boolean.parseBoolean(properties.getProperty("autoArmor", String.valueOf(config.autoArmor)));
+		config.autoWeapon = Boolean.parseBoolean(properties.getProperty("autoWeapon", String.valueOf(config.autoWeapon)));
+		config.autoWeaponReturn = Mth.clamp(readInt(properties, "autoWeaponReturn", config.autoWeaponReturn), 0, MAX_AUTO_WEAPON_RETURN);
 		config.autoTotemDelay = Mth.clamp(readInt(properties, "autoTotemDelay", config.autoTotemDelay), 0, MAX_AUTO_TOTEM_DELAY);
 		config.autoTotemHealth = Mth.clamp(readInt(properties, "autoTotemHealth", config.autoTotemHealth), 0, MAX_AUTO_TOTEM_HEALTH);
 		config.takeAllDelay = Mth.clamp(readInt(properties, "takeAllDelay", config.takeAllDelay), 0, MAX_TAKE_ALL_DELAY);
@@ -295,6 +311,7 @@ public final class BaseTracerConfig {
 		} catch (IllegalArgumentException e) {
 			BaseTracerClient.LOGGER.warn("Ignoring unknown quick use action: {}", properties.getProperty("quickUseAction"));
 		}
+		config.autoEatResupply = Boolean.parseBoolean(properties.getProperty("autoEatResupply", String.valueOf(config.autoEatResupply)));
 		config.autoEatHunger = Mth.clamp(readInt(properties, "autoEatHunger", config.autoEatHunger), 1, MAX_AUTO_EAT_HUNGER);
 		config.autoEatHealth = Mth.clamp(readInt(properties, "autoEatHealth", config.autoEatHealth), 0, MAX_AUTO_EAT_HEALTH);
 		config.maxBases = Mth.clamp(readInt(properties, "maxBases", config.maxBases), 1, MAX_BASES_LIMIT + 1);
@@ -487,7 +504,8 @@ public final class BaseTracerConfig {
 		return new BaseTracerConfig();
 	}
 
-	public void save() {
+	/** Every setting, as saved to the settings file and to exports. */
+	public Properties toProperties() {
 		Properties properties = new Properties();
 		properties.setProperty("enabled", String.valueOf(this.enabled));
 		properties.setProperty("showChunkHighlights", String.valueOf(this.showChunkHighlights));
@@ -514,6 +532,10 @@ public final class BaseTracerConfig {
 		properties.setProperty("quickUseAction", this.quickUseAction.name());
 		properties.setProperty("takeAll", String.valueOf(this.takeAll));
 		properties.setProperty("autoTotem", String.valueOf(this.autoTotem));
+		properties.setProperty("autoEatResupply", String.valueOf(this.autoEatResupply));
+		properties.setProperty("autoArmor", String.valueOf(this.autoArmor));
+		properties.setProperty("autoWeapon", String.valueOf(this.autoWeapon));
+		properties.setProperty("autoWeaponReturn", String.valueOf(this.autoWeaponReturn));
 		properties.setProperty("autoTotemDelay", String.valueOf(this.autoTotemDelay));
 		properties.setProperty("autoTotemHealth", String.valueOf(this.autoTotemHealth));
 		properties.setProperty("takeAllDelay", String.valueOf(this.takeAllDelay));
@@ -555,6 +577,34 @@ public final class BaseTracerConfig {
 			properties.setProperty(prefix + "minTypes", String.valueOf(rule.minTypes));
 			properties.setProperty(prefix + "blocks", String.join(",", rule.blockIds()));
 		}
+
+		return properties;
+	}
+
+	/**
+	 * Takes on every setting of another config, such as one just imported, keeping this one's file. Everything that's
+	 * worked out from the settings is worked out again.
+	 */
+	public void copyFrom(BaseTracerConfig other) {
+		for (java.lang.reflect.Field field : BaseTracerConfig.class.getDeclaredFields()) {
+			if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) || field.getName().equals("file")) {
+				continue;
+			}
+
+			try {
+				field.setAccessible(true);
+				field.set(this, field.get(other));
+			} catch (IllegalAccessException e) {
+				throw new IllegalStateException("Can't copy setting " + field.getName(), e);
+			}
+		}
+
+		this.refreshColors();
+		this.markRulesChanged();
+	}
+
+	public void save() {
+		Properties properties = this.toProperties();
 
 		try (Writer writer = Files.newBufferedWriter(this.file)) {
 			properties.store(writer, "Base Tracer settings. Change these in-game through the settings screen.");
