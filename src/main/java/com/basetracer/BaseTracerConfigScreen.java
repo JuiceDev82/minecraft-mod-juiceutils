@@ -11,6 +11,7 @@ import net.minecraft.client.OptionInstance;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.OptionsList;
@@ -277,6 +278,37 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 						button -> this.minecraft.gui.setScreen(new PutAllItemsScreen(this))
 				).build()
 		);
+		this.list.addSmall(
+				OptionInstance.createBoolean(
+						"options.basetracer.sortButtons",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.basetracer.sortButtons.tooltip")),
+						config.sortButtons,
+						value -> config.sortButtons = value
+				).createButton(this.minecraft.options),
+				CycleButton.builder(SortMode::label, config.sortMode)
+						.withValues(SortMode.values())
+						.create(Component.translatable("options.basetracer.sortMode"), (button, value) -> config.sortMode = value)
+		);
+		this.list.addSmall(
+				new OptionInstance<>(
+						"options.basetracer.sortDelay",
+						OptionInstance.noTooltip(),
+						(caption, value) -> Options.genericValueLabel(caption, value == 0
+								? Component.translatable("options.basetracer.takeAllDelay.instant")
+								: Component.translatable("options.basetracer.seconds", String.format(java.util.Locale.ROOT, "%.2f", value / 20.0))),
+						new OptionInstance.IntRange(0, BaseTracerConfig.MAX_SORT_DELAY, true),
+						config.sortDelay,
+						value -> config.sortDelay = value
+				).createButton(this.minecraft.options),
+				Button.builder(
+						Component.translatable("options.basetracer.sortPriorities"),
+						button -> this.minecraft.gui.setScreen(new SortPriorityScreen(this))
+				).tooltip(Tooltip.create(Component.translatable("options.basetracer.sortPriorities.tooltip"))).build()
+		);
+		this.list.addBig(Button.builder(
+				Component.translatable("options.basetracer.sortGroups"),
+				button -> this.minecraft.gui.setScreen(new SortGroupsScreen(this))
+		).tooltip(Tooltip.create(Component.translatable("options.basetracer.sortGroups.tooltip"))).build());
 
 		this.addSection("options.basetracer.section.appearance");
 		this.list.addBig(new OptionInstance<>(

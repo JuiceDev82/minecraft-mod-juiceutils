@@ -47,6 +47,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerConnection;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 
+import com.basetracer.AutoTotem;
 import com.basetracer.BaseRule;
 import com.basetracer.DroppedItems;
 import com.basetracer.AutoEat;
@@ -57,6 +58,12 @@ import com.basetracer.SectionToggle;
 import com.basetracer.PutAllFilter;
 import com.basetracer.PutAllItemsScreen;
 import com.basetracer.QuickUseAction;
+import com.basetracer.ItemGroup;
+import com.basetracer.SortGroupsScreen;
+import com.basetracer.SortMode;
+import com.basetracer.SortPriority;
+import com.basetracer.SortPriorityScreen;
+import com.basetracer.Sorter;
 import com.basetracer.TakeAll;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import com.basetracer.SmartTool;
@@ -135,6 +142,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			testFoodResupply(context, server);
 			testNameTags(context, server);
 			testTakeAll(context, server);
+			testSort(context, server);
 			testCustomRule(context, server);
 			testBasePriority(context, server);
 			testRuleScreens(context);
@@ -543,6 +551,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		allOff.autoEat = false;
 		allOff.autoTotem = false;
 		allOff.autoArmor = false;
+		allOff.sortButtons = false;
 		allOff.autoWeapon = false;
 		List<String> none = context.computeOnClient(client -> splashText(ModuleSplash.groups(allOff, false)));
 		check(none.isEmpty(), "Splash should have no sections with everything off: " + none);
@@ -1281,6 +1290,20 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.waitTicks(2);
 		check(mineWith(context, server, new BlockPos(9, 100, 7)) == 6, "Wood should select the axe again");
 
+		// Cobwebs take shears, or without them a sword.
+		server.runCommand("item replace entity @a hotbar.1 with minecraft:iron_sword");
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:shears");
+		server.runCommand("setblock 9 103 8 minecraft:cobweb");
+		context.waitTicks(5);
+		// From the torch: a sword already in hand cuts the web before the switch's delay is up.
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(0));
+		context.waitTicks(2);
+		check(mineWith(context, server, new BlockPos(9, 103, 8)) == 4, "A cobweb should select the shears");
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:iron_shovel");
+		server.runCommand("setblock 9 103 8 minecraft:cobweb");
+		context.waitTicks(5);
+		check(mineWith(context, server, new BlockPos(9, 103, 8)) == 1, "Without shears a cobweb should select the sword");
+
 		// A worse tool of the right kind in hand is swapped for the best.
 		server.runCommand("setblock 9 102 7 minecraft:deepslate");
 		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(3));
@@ -1559,6 +1582,205 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		context.waitTicks(5);
 	}
 
+	/** The chest's slot contents on the server, as "item count" with empty slots left out, in slot order. */
+	private static List<String> chestContents(TestServerContext server) {
+		return server.computeOnServer(minecraftServer -> {
+			var chest = (net.minecraft.world.Container) minecraftServer.overworld().getBlockEntity(new BlockPos(10, 100, 8));
+			List<String> contents = new java.util.ArrayList<>();
+
+			for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+				net.minecraft.world.item.ItemStack stack = chest.getItem(slot);
+				contents.add(stack.isEmpty() ? "-" : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath() + " " + stack.getCount());
+			}
+
+			return contents;
+		});
+	}
+
+	private static void sortChest(ClientGameTestContext context, SortMode mode, boolean inventory) {
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.sortMode = mode;
+			Sorter.start((net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>) client.gui.screen(), inventory);
+		});
+		context.waitFor(client -> !Sorter.isSorting(), TIMEOUT_TICKS * 4);
+		context.waitTicks(5);
+	}
+
+	private static void testSort(ClientGameTestContext context, TestServerContext server) {
+		// Each group gets its own things, going by the game's tags once in a world.
+		java.util.Map<net.minecraft.world.item.Item, ItemGroup> groups = new java.util.LinkedHashMap<>();
+		groups.put(Items.IRON_CHESTPLATE, ItemGroup.ARMOR);
+		groups.put(Items.SHIELD, ItemGroup.ARMOR);
+		groups.put(Items.DIAMOND_SWORD, ItemGroup.WEAPONS);
+		groups.put(Items.ARROW, ItemGroup.WEAPONS);
+		groups.put(Items.IRON_PICKAXE, ItemGroup.TOOLS);
+		groups.put(Items.WATER_BUCKET, ItemGroup.TOOLS);
+		groups.put(Items.OAK_LOG, ItemGroup.WOOD);
+		groups.put(Items.SPRUCE_PLANKS, ItemGroup.WOOD);
+		groups.put(Items.STICK, ItemGroup.WOOD);
+		groups.put(Items.COBBLESTONE, ItemGroup.STONE);
+		groups.put(Items.DEEPSLATE, ItemGroup.STONE);
+		groups.put(Items.STONE_BRICKS, ItemGroup.STONE);
+		groups.put(Items.NETHERRACK, ItemGroup.STONE);
+		groups.put(Items.BREAD, ItemGroup.FOOD);
+		groups.put(Items.COOKED_BEEF, ItemGroup.FOOD);
+		groups.put(Items.WHEAT_SEEDS, ItemGroup.FARMING);
+		groups.put(Items.OAK_SAPLING, ItemGroup.FARMING);
+		groups.put(Items.BONE_MEAL, ItemGroup.FARMING);
+		groups.put(Items.SUGAR_CANE, ItemGroup.FARMING);
+		groups.put(Items.DIAMOND, ItemGroup.MINERALS);
+		groups.put(Items.IRON_INGOT, ItemGroup.MINERALS);
+		groups.put(Items.RAW_GOLD, ItemGroup.MINERALS);
+		groups.put(Items.DEEPSLATE_IRON_ORE, ItemGroup.MINERALS);
+		groups.put(Items.DIRT, ItemGroup.NATURE);
+		groups.put(Items.SAND, ItemGroup.NATURE);
+		groups.put(Items.OAK_LEAVES, ItemGroup.NATURE);
+		groups.put(Items.POPPY, ItemGroup.NATURE);
+		groups.put(net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse("white_wool")), ItemGroup.COLORED);
+		groups.put(net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse("red_concrete")), ItemGroup.COLORED);
+		groups.put(Items.GLASS, ItemGroup.COLORED);
+		groups.put(Items.REDSTONE, ItemGroup.REDSTONE);
+		groups.put(Items.REPEATER, ItemGroup.REDSTONE);
+		groups.put(Items.RAIL, ItemGroup.REDSTONE);
+		groups.put(Items.CHEST, ItemGroup.UTILITY);
+		groups.put(Items.CRAFTING_TABLE, ItemGroup.UTILITY);
+		groups.put(Items.TORCH, ItemGroup.UTILITY);
+		groups.put(Items.SHULKER_BOX, ItemGroup.UTILITY);
+		groups.put(Items.POTION, ItemGroup.POTIONS);
+		groups.put(Items.BONE, ItemGroup.MOB_DROPS);
+		groups.put(Items.ROTTEN_FLESH, ItemGroup.MOB_DROPS);
+		groups.put(Items.GUNPOWDER, ItemGroup.MOB_DROPS);
+		List<String> wrong = context.computeOnClient(client -> groups.entrySet().stream()
+				.filter(entry -> ItemGroup.of(new net.minecraft.world.item.ItemStack(entry.getKey())) != entry.getValue())
+				.map(entry -> entry.getKey() + " is " + ItemGroup.of(new net.minecraft.world.item.ItemStack(entry.getKey())))
+				.toList());
+		check(wrong.isEmpty(), "Items in the wrong sort group: " + wrong);
+
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.sortButtons && BaseTracerClient.CONFIG.sortMode == SortMode.TYPE
+				&& BaseTracerClient.CONFIG.sortDelay == 3), "Sort should start on, by type");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+		server.runCommand("setblock 10 100 8 minecraft:chest");
+		server.runCommand("item replace block 10 100 8 container.0 with minecraft:cobblestone 20");
+		server.runCommand("item replace block 10 100 8 container.3 with minecraft:diamond 5");
+		server.runCommand("item replace block 10 100 8 container.4 with minecraft:bread 3");
+		server.runCommand("item replace block 10 100 8 container.7 with minecraft:cobblestone 50");
+		server.runCommand("item replace block 10 100 8 container.9 with minecraft:iron_sword");
+		server.runCommand("item replace block 10 100 8 container.12 with minecraft:cobblestone 30");
+		server.runCommand("item replace block 10 100 8 container.20 with minecraft:diamond 2");
+		server.runCommand("item replace block 10 100 8 container.26 with minecraft:netherite_ingot 1");
+		context.waitTicks(5);
+		openChest(context, server);
+		check(context.computeOnClient(client -> Screens.getWidgets(client.gui.screen()).stream()
+				.filter(widget -> widget.getMessage().getString().equals("Sort")).count() == 2), "The chest should have two Sort buttons");
+
+		// Watching it go: a stack is carried on the cursor between clicks.
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.sortMode = SortMode.TYPE;
+			Sorter.start((net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>) client.gui.screen(), false);
+		});
+		context.waitFor(client -> !client.player.containerMenu.getCarried().isEmpty(), TIMEOUT_TICKS);
+		context.takeScreenshot("basetracer_sort_carrying");
+		context.waitFor(client -> !Sorter.isSorting(), TIMEOUT_TICKS * 4);
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.containerMenu.getCarried().isEmpty()), "Nothing should be left on the cursor");
+		// By type: the sword, the stone, the bread, then the minerals; the cobblestone joined into full stacks first.
+		List<String> byType = chestContents(server);
+		check(byType.subList(0, 7).equals(List.of("iron_sword 1", "cobblestone 64", "cobblestone 36", "bread 3", "diamond 7", "netherite_ingot 1", "-"))
+				&& byType.stream().skip(7).allMatch("-"::equals), "Sorting by type gave " + byType);
+		context.takeScreenshot("basetracer_sort_type");
+
+		sortChest(context, SortMode.VALUE, false);
+		List<String> byValue = chestContents(server);
+		check(byValue.subList(0, 6).equals(List.of("netherite_ingot 1", "diamond 7", "iron_sword 1", "cobblestone 64", "cobblestone 36", "bread 3")),
+				"Sorting by value gave " + byValue);
+
+		sortChest(context, SortMode.COUNT, false);
+		List<String> byCount = chestContents(server);
+		check(byCount.subList(0, 6).equals(List.of("cobblestone 64", "cobblestone 36", "diamond 7", "bread 3", "iron_sword 1", "netherite_ingot 1")),
+				"Sorting by count gave " + byCount);
+
+		// With food moved to the front of the groups, the bread goes first.
+		context.runOnClient(client -> client.player.closeContainer());
+		context.waitTicks(5);
+		context.runOnClient(client -> client.gui.setScreen(new SortGroupsScreen(null)));
+		context.waitTicks(5);
+		pressListButton(context, "6. Food");
+		context.takeScreenshot("basetracer_sort_groups_picked");
+		pressListButton(context, "1. Armor");
+		context.waitTicks(2);
+		context.takeScreenshot("basetracer_sort_groups");
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.sortGroupOrder().getFirst() == ItemGroup.FOOD
+				&& BaseTracerClient.CONFIG.sortGroupOrder().get(1) == ItemGroup.ARMOR
+				&& BaseTracerClient.CONFIG.sortGroupOrder().size() == ItemGroup.values().length), "Food should have moved to the front");
+		context.runOnClient(client -> client.gui.setScreen(null));
+		openChest(context, server);
+		sortChest(context, SortMode.TYPE, false);
+		List<String> foodFirst = chestContents(server);
+		check(foodFirst.subList(0, 6).equals(List.of("bread 3", "iron_sword 1", "cobblestone 64", "cobblestone 36", "diamond 7", "netherite_ingot 1")),
+				"Sorting with food first gave " + foodFirst);
+		context.runOnClient(client -> BaseTracerClient.CONFIG.resetSortGroupOrder());
+
+		// Chosen items go first and last, whatever the order says about them.
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.setSortPriority(Items.NETHERITE_INGOT, SortPriority.FRONT);
+			BaseTracerClient.CONFIG.setSortPriority(Items.COBBLESTONE, SortPriority.BACK);
+		});
+		sortChest(context, SortMode.COUNT, false);
+		List<String> byPriority = chestContents(server);
+		check(byPriority.subList(0, 7).equals(List.of("netherite_ingot 1", "diamond 7", "bread 3", "iron_sword 1", "cobblestone 64", "cobblestone 36", "-")),
+				"Sorting with priorities gave " + byPriority);
+		context.runOnClient(client -> client.player.closeContainer());
+		context.waitTicks(5);
+		context.runOnClient(client -> client.gui.setScreen(new SortPriorityScreen(null)));
+		context.waitTicks(5);
+		context.takeScreenshot("basetracer_sort_priorities");
+		context.runOnClient(client -> {
+			client.gui.setScreen(null);
+			BaseTracerClient.CONFIG.clearSortPriorities();
+		});
+		check(context.computeOnClient(client -> BaseTracerClient.CONFIG.sortPriority(Items.NETHERITE_INGOT) == SortPriority.NORMAL), "Clearing should put every item back to normal");
+
+		// The inventory's sort leaves the hotbar alone.
+		server.runCommand("clear @a");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:torch 5");
+		server.runCommand("item replace entity @a hotbar.4 with minecraft:dirt 5");
+		server.runCommand("item replace entity @a inventory.5 with minecraft:dirt 10");
+		server.runCommand("item replace entity @a inventory.20 with minecraft:diamond_sword");
+		server.runCommand("item replace entity @a inventory.26 with minecraft:dirt 7");
+		context.waitTicks(5);
+		context.runOnClient(client -> client.gui.setScreen(new net.minecraft.client.gui.screens.inventory.InventoryScreen(client.player)));
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> Screens.getWidgets(client.gui.screen()).stream()
+				.filter(widget -> widget.getMessage().getString().equals("Sort")).count() == 1), "The inventory should have a Sort button");
+		context.takeScreenshot("basetracer_sort_inventory");
+		sortChest(context, SortMode.TYPE, true);
+		check(context.computeOnClient(client -> {
+			net.minecraft.world.entity.player.Inventory inventory = client.player.getInventory();
+			return inventory.getItem(0).is(Items.TORCH) && inventory.getItem(4).is(Items.DIRT) && inventory.getItem(4).getCount() == 5
+					&& inventory.getItem(9).is(Items.DIAMOND_SWORD) && inventory.getItem(10).is(Items.DIRT) && inventory.getItem(10).getCount() == 17
+					&& inventory.getItem(11).isEmpty() && inventory.getItem(35).isEmpty();
+		}), "The inventory should be sorted with the hotbar untouched");
+		check(server.computeOnServer(minecraftServer -> {
+			net.minecraft.world.entity.player.Inventory inventory = minecraftServer.getPlayerList().getPlayers().getFirst().getInventory();
+			return inventory.getItem(9).is(Items.DIAMOND_SWORD) && inventory.getItem(10).getCount() == 17 && inventory.getItem(4).getCount() == 5;
+		}), "The inventory should be sorted on the server");
+
+		context.runOnClient(client -> {
+			BaseTracerClient.CONFIG.sortMode = SortMode.TYPE;
+			client.player.closeContainer();
+		});
+		server.runCommand("setblock 10 100 8 minecraft:air");
+		server.runCommand("kill @e[type=minecraft:item]");
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
+	}
+
 	/** Settings can be opened before any world, when items have no data components to make stacks from yet. */
 	private static void testPutAllItemsFromTitleScreen(ClientGameTestContext context) {
 		context.setScreen(() -> new PutAllItemsScreen(null));
@@ -1694,6 +1916,37 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
 			return player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && player.getInventory().getItem(14).is(Items.SHIELD);
 		}), "On the server, the totem should be in the offhand and the shield where the totem was");
+		check(context.computeOnClient(client -> AutoTotem.isShieldOut()), "The shield should be waiting to go back");
+
+		// Healed, but not yet full on food: the totem stays, even past the 30 seconds.
+		server.runOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			player.getFoodData().setFoodLevel(15);
+			player.getFoodData().setSaturation(0F);
+		});
+		server.runCommand("effect clear @a");
+		server.runCommand("effect give @a minecraft:instant_health 1 5");
+		context.waitTicks(AutoTotem.SHIELD_BACK_TICKS + 20);
+		check(context.computeOnClient(client -> client.player.getHealth() >= client.player.getMaxHealth()
+				&& client.player.getFoodData().getFoodLevel() < 20 && client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)),
+				"Without full hunger the totem should stay");
+
+		// Full on food too: the shield goes back, and the totem where the shield was.
+		server.runCommand("effect give @a minecraft:saturation 1 20");
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.SHIELD), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> !AutoTotem.isShieldOut()), "Nothing should be waiting once the shield is back");
+		check(server.computeOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			return player.getOffhandItem().is(Items.SHIELD) && player.getInventory().getItem(14).is(Items.TOTEM_OF_UNDYING);
+		}), "On the server, the shield should be back in the offhand");
+
+		// A totem put in by hand, with a shield in the inventory, isn't waiting to be swapped back.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:totem_of_undying");
+		server.runCommand("item replace entity @a inventory.5 with minecraft:shield");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> !AutoTotem.isShieldOut() && client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)),
+				"A totem put in by hand should stay");
 
 		server.runCommand("effect clear @a");
 		server.runCommand("effect give @a minecraft:instant_health 1 5");
@@ -1940,6 +2193,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		server.runCommand("kill @e[tag=weapon_cow]");
 		server.runCommand("kill @e[tag=weapon_zombie]");
 		server.runCommand("kill @e[tag=weapon_stand]");
+		// Their drops would be picked up later, and raw beef counts as food in the hotbar.
+		server.runCommand("kill @e[type=minecraft:item]");
 		server.runCommand("clear @a");
 		server.runCommand("gamemode spectator @a");
 		server.runCommand("setblock 8 99 8 minecraft:air");
@@ -2555,6 +2810,14 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			reloaded.autoWeaponReturn = 0;
 			reloaded.autoEatResupply = false;
 			reloaded.takeAllDelay = 4;
+			reloaded.sortButtons = false;
+			reloaded.sortMode = SortMode.VALUE;
+			reloaded.sortDelay = 7;
+			reloaded.setSortPriority(Items.DIAMOND, SortPriority.FRONT);
+			reloaded.setSortPriority(Items.DIRT, SortPriority.BACK);
+			reloaded.setSortPriority(Items.STONE, SortPriority.FRONT);
+			reloaded.setSortPriority(Items.STONE, SortPriority.NORMAL);
+			reloaded.moveSortGroup(ItemGroup.MOB_DROPS, 0);
 			reloaded.putAllHotbar = true;
 			reloaded.playerAlerts = false;
 			reloaded.putAllFilter = PutAllFilter.EXCEPT_LISTED;
@@ -2588,6 +2851,10 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			check(!withRules.autoTotem && withRules.autoTotemDelay == 40 && withRules.autoTotemHealth == 7 && !withRules.autoArmor && !withRules.autoWeapon && withRules.autoWeaponReturn == 0 && !withRules.autoEatResupply, "Auto totem settings lost on reload");
 			check(!withRules.nameTags && withRules.nameTagRange == 48 && withRules.isNameTagged(net.minecraft.world.entity.EntityTypes.ACACIA_BOAT)
 					&& withRules.nameTagBlocks().contains(Blocks.CHEST) && !withRules.nameTagBlocks().contains(Blocks.STONE), "Name tag settings lost on reload");
+			check(!withRules.sortButtons && withRules.sortMode == SortMode.VALUE && withRules.sortDelay == 7
+					&& withRules.sortPriority(Items.DIAMOND) == SortPriority.FRONT && withRules.sortPriority(Items.DIRT) == SortPriority.BACK
+					&& withRules.sortPriority(Items.STONE) == SortPriority.NORMAL && withRules.sortGroupOrder().getFirst() == ItemGroup.MOB_DROPS
+					&& withRules.sortGroupOrder().size() == ItemGroup.values().length, "Sort settings lost on reload");
 			check(!withRules.takeAll && withRules.takeAllDelay == 4 && withRules.putAllHotbar
 					&& !withRules.playerAlerts
 					&& withRules.putAllFilter == PutAllFilter.EXCEPT_LISTED && withRules.isPutAllListed(Items.COBBLESTONE)
@@ -2733,7 +3000,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		config.autoTotem = false;
 		config.autoArmor = false;
 		config.autoWeapon = false;
-		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll && config.autoArmor && config.autoWeapon, "Tools should all turn on");
+		config.sortButtons = false;
+		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll && config.autoArmor && config.autoWeapon && config.sortButtons, "Tools should all turn on");
 		SectionToggle.forgetAll();
 	}
 

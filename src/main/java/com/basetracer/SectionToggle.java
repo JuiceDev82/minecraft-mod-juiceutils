@@ -34,7 +34,8 @@ public enum SectionToggle {
 			flag(config -> config.autoTotem, (config, value) -> config.autoTotem = value),
 			flag(config -> config.autoArmor, (config, value) -> config.autoArmor = value),
 			flag(config -> config.autoWeapon, (config, value) -> config.autoWeapon = value),
-			flag(config -> config.takeAll, (config, value) -> config.takeAll = value));
+			flag(config -> config.takeAll, (config, value) -> config.takeAll = value),
+			flag(config -> config.sortButtons, (config, value) -> config.sortButtons = value));
 
 	private record Flag(Predicate<BaseTracerConfig> get, BiConsumer<BaseTracerConfig, Boolean> set) {
 	}

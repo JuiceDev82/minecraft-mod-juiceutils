@@ -6,6 +6,7 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
@@ -40,6 +41,7 @@ public final class BaseTracerConfig {
 	public static final int MAX_AUTO_TOTEM_DELAY = 100;
 	public static final int MAX_AUTO_TOTEM_HEALTH = 10;
 	public static final int MAX_AUTO_WEAPON_RETURN = 200;
+	public static final int MAX_SORT_DELAY = 10;
 	public static final int MIN_NAME_TAG_RANGE = 8;
 	public static final int MAX_NAME_TAG_RANGE = 64;
 	public static final int MAX_MOB_WARNING_DISTANCE = 32;
@@ -161,6 +163,11 @@ public final class BaseTracerConfig {
 	public boolean putAllHotbar = false;
 	/** Whether Put All moves only the listed items, all but them, or everything. */
 	public PutAllFilter putAllFilter = PutAllFilter.OFF;
+	/** Sort buttons on storage screens and the inventory. */
+	public boolean sortButtons = true;
+	public SortMode sortMode = SortMode.TYPE;
+	/** Most ticks between the clicks of a sort; each wait is one up to this. 0 sorts at once. */
+	public int sortDelay = 3;
 	/** Eats once the hunger bar is at or below this, out of 20. */
 	public int autoEatHunger = 14;
 	/** Also eats once health is below this percent of the maximum. 0 turns it off. */
@@ -182,6 +189,11 @@ public final class BaseTracerConfig {
 	private TreeSet<String> mobOverrides = new TreeSet<>();
 	private TreeSet<String> xrayBlockIds = new TreeSet<>(DEFAULT_XRAY_BLOCKS);
 	private TreeSet<String> putAllItemIds = new TreeSet<>();
+	/** Items Sort puts at the front, and at the back, ahead of the sort order. */
+	private TreeSet<String> sortFrontIds = new TreeSet<>();
+	private TreeSet<String> sortBackIds = new TreeSet<>();
+	/** The order Sort by Type puts its groups in, every group once. */
+	private ArrayList<ItemGroup> sortGroupOrder = new ArrayList<>(List.of(ItemGroup.values()));
 	private TreeSet<String> nameTagEntityIds = new TreeSet<>();
 	private TreeSet<String> nameTagBlockIds = new TreeSet<>();
 	// Only read when importing the old JSON file, where tracerMode didn't exist yet.
@@ -294,6 +306,15 @@ public final class BaseTracerConfig {
 		readIds(properties.getProperty("nameTagEntities", ""), config.nameTagEntityIds);
 		readIds(properties.getProperty("nameTagBlocks", ""), config.nameTagBlockIds);
 
+		config.sortButtons = Boolean.parseBoolean(properties.getProperty("sortButtons", String.valueOf(config.sortButtons)));
+		config.sortDelay = Mth.clamp(readInt(properties, "sortDelay", config.sortDelay), 0, MAX_SORT_DELAY);
+
+		try {
+			config.sortMode = SortMode.valueOf(properties.getProperty("sortMode", config.sortMode.name()));
+		} catch (IllegalArgumentException e) {
+			BaseTracerClient.LOGGER.warn("Ignoring unknown sort mode: {}", properties.getProperty("sortMode"));
+		}
+
 		try {
 			config.putAllFilter = PutAllFilter.valueOf(properties.getProperty("putAllFilter", config.putAllFilter.name()));
 		} catch (IllegalArgumentException e) {
@@ -305,6 +326,10 @@ public final class BaseTracerConfig {
 				config.putAllItemIds.add(item.trim());
 			}
 		}
+
+		readIds(properties.getProperty("sortFront", ""), config.sortFrontIds);
+		readIds(properties.getProperty("sortBack", ""), config.sortBackIds);
+		config.sortGroupOrder = readGroupOrder(properties.getProperty("sortGroupOrder", ""));
 
 		try {
 			config.quickUseAction = QuickUseAction.valueOf(properties.getProperty("quickUseAction", config.quickUseAction.name()));
@@ -541,7 +566,13 @@ public final class BaseTracerConfig {
 		properties.setProperty("takeAllDelay", String.valueOf(this.takeAllDelay));
 		properties.setProperty("putAllHotbar", String.valueOf(this.putAllHotbar));
 		properties.setProperty("putAllFilter", this.putAllFilter.name());
+		properties.setProperty("sortButtons", String.valueOf(this.sortButtons));
+		properties.setProperty("sortMode", this.sortMode.name());
+		properties.setProperty("sortDelay", String.valueOf(this.sortDelay));
 		properties.setProperty("putAllItems", String.join(",", this.putAllItemIds));
+		properties.setProperty("sortFront", String.join(",", this.sortFrontIds));
+		properties.setProperty("sortBack", String.join(",", this.sortBackIds));
+		properties.setProperty("sortGroupOrder", String.join(",", this.sortGroupOrder.stream().map(ItemGroup::name).toList()));
 		properties.setProperty("nameTags", String.valueOf(this.nameTags));
 		properties.setProperty("nameTagRange", String.valueOf(this.nameTagRange));
 		properties.setProperty("nameTagEntities", String.join(",", this.nameTagEntityIds));
@@ -755,6 +786,76 @@ public final class BaseTracerConfig {
 
 	public void clearPutAllItems() {
 		this.putAllItemIds.clear();
+	}
+
+	/** Whether Sort puts this item at the front, at the back, or by the sort order. */
+	public SortPriority sortPriority(Item item) {
+		String id = BuiltInRegistries.ITEM.getKey(item).toString();
+		return this.sortFrontIds.contains(id) ? SortPriority.FRONT : this.sortBackIds.contains(id) ? SortPriority.BACK : SortPriority.NORMAL;
+	}
+
+	public void setSortPriority(Item item, SortPriority priority) {
+		String id = BuiltInRegistries.ITEM.getKey(item).toString();
+		this.sortFrontIds.remove(id);
+		this.sortBackIds.remove(id);
+
+		switch (priority) {
+			case FRONT -> this.sortFrontIds.add(id);
+			case BACK -> this.sortBackIds.add(id);
+			case NORMAL -> {
+			}
+		}
+	}
+
+	public void clearSortPriorities() {
+		this.sortFrontIds.clear();
+		this.sortBackIds.clear();
+	}
+
+	public List<ItemGroup> sortGroupOrder() {
+		return Collections.unmodifiableList(this.sortGroupOrder);
+	}
+
+	/** Where a group comes in Sort by Type, 0 first. */
+	public int sortGroupRank(ItemGroup group) {
+		return this.sortGroupOrder.indexOf(group);
+	}
+
+	/** Moves a group to this place in the order, shifting the ones between along. */
+	public void moveSortGroup(ItemGroup group, int place) {
+		this.sortGroupOrder.remove(group);
+		this.sortGroupOrder.add(Math.clamp(place, 0, this.sortGroupOrder.size()), group);
+	}
+
+	public void resetSortGroupOrder() {
+		this.sortGroupOrder = new ArrayList<>(List.of(ItemGroup.values()));
+	}
+
+	/** The saved group order, leaving out unknown names and adding any group that's missing, such as a new one, last. */
+	private static ArrayList<ItemGroup> readGroupOrder(String list) {
+		ArrayList<ItemGroup> order = new ArrayList<>();
+
+		for (String name : list.split(",")) {
+			try {
+				ItemGroup group = ItemGroup.valueOf(name.trim());
+
+				if (!order.contains(group)) {
+					order.add(group);
+				}
+			} catch (IllegalArgumentException e) {
+				if (!name.isBlank()) {
+					BaseTracerClient.LOGGER.warn("Ignoring unknown sort group: {}", name);
+				}
+			}
+		}
+
+		for (ItemGroup group : ItemGroup.values()) {
+			if (!order.contains(group)) {
+				order.add(group);
+			}
+		}
+
+		return order;
 	}
 
 	/** Whether Put All moves this item, going by the filter and the list. */

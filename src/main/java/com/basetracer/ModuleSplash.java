@@ -126,6 +126,7 @@ public final class ModuleSplash {
 		addIf(tools, config.autoTotem, Component.translatable("options.basetracer.autoTotem"));
 		addIf(tools, config.autoArmor, Component.translatable("options.basetracer.autoArmor"));
 		addIf(tools, config.autoWeapon, Component.translatable("options.basetracer.autoWeapon"));
+		addIf(tools, config.sortButtons, Component.translatable("options.basetracer.sort.button"));
 		addGroup(groups, "tools", tools, ChatFormatting.GREEN);
 
 		return groups;

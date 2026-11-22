@@ -19,7 +19,9 @@ import net.minecraft.world.item.Items;
  * Keeps a totem of undying in the offhand. Once the offhand stops holding one, such as when it pops, it waits the
  * chosen time and then swaps in a totem from anywhere in the inventory, the same swap as pressing the offhand key over
  * it in the inventory screen. Whatever was in the offhand goes where the totem was, except a shield: that stays until
- * the player takes it out. Low on health, a totem goes in at once, shield or not.
+ * the player takes it out. Low on health, a totem goes in at once, shield or not; and once the player has fully
+ * recovered, with full health and a full hunger bar, and at least 30 seconds have gone by, the shield goes back. A totem
+ * the player put there themselves stays.
  */
 public final class AutoTotem {
 	/** The button that swaps a slot with the offhand, as the offhand key does in the inventory screen. */
@@ -30,6 +32,12 @@ public final class AutoTotem {
 	private static int missingSince = -1;
 	/** Whether the offhand held a totem until it went, so that running out is said once, as the last one pops. */
 	private static boolean lostTotem;
+	/** Fully recovered for this long after a shield was swapped out, at least, before it goes back: 30 seconds. */
+	public static final int SHIELD_BACK_TICKS = 600;
+	/** The tick a shield was swapped out for a totem on low health, or -1 when there's no shield to put back. */
+	private static int shieldOutSince = -1;
+	/** The shield that was swapped out, to find it again over any other shield. */
+	private static ItemStack shieldOut = ItemStack.EMPTY;
 
 	private AutoTotem() {
 	}
@@ -43,6 +51,11 @@ public final class AutoTotem {
 				|| player.isSpectator() || player.isCreative() || !player.isAlive()) {
 			missingSince = -1;
 			lostTotem = false;
+			shieldOutSince = -1;
+			return;
+		}
+
+		if (shieldOutSince >= 0 && putShieldBack(client, player)) {
 			return;
 		}
 
@@ -85,11 +98,75 @@ public final class AutoTotem {
 			return;
 		}
 
+		ItemStack replaced = player.getOffhandItem().copy();
 		client.gameMode.handleContainerInput(player.inventoryMenu.containerId, menuSlot(slot), OFFHAND_BUTTON, ContainerInput.SWAP, player);
 		InventoryClicks.finish(client, player);
+
+		if (lowHealth && isShield(replaced)) {
+			shieldOutSince = ticks;
+			shieldOut = replaced;
+		}
+
 		int left = player.getInventory().countItem(Items.TOTEM_OF_UNDYING) - 1;
 		player.sendOverlayMessage(Component.translatable("message.basetracer.autoTotem.equipped", left).withStyle(ChatFormatting.GOLD));
 		missingSince = -1;
+	}
+
+	/**
+	 * Puts back a shield swapped out on low health, once the player is fully recovered and the time is up. Returns
+	 * whether it did. Gives up on it when the offhand has been given something else, or the shield is gone.
+	 */
+	private static boolean putShieldBack(Minecraft client, LocalPlayer player) {
+		ItemStack offhand = player.getOffhandItem();
+
+		if (!offhand.isEmpty() && !offhand.is(Items.TOTEM_OF_UNDYING)) {
+			shieldOutSince = -1;
+			return false;
+		}
+
+		if (ticks - shieldOutSince < SHIELD_BACK_TICKS || player.getHealth() < player.getMaxHealth()
+				|| player.getFoodData().getFoodLevel() < 20 || !canSwap(client, player)) {
+			return false;
+		}
+
+		int slot = findShield(player.getInventory());
+		shieldOutSince = -1;
+
+		if (slot < 0) {
+			return false;
+		}
+
+		client.gameMode.handleContainerInput(player.inventoryMenu.containerId, menuSlot(slot), OFFHAND_BUTTON, ContainerInput.SWAP, player);
+		InventoryClicks.finish(client, player);
+		player.sendOverlayMessage(Component.translatable("message.basetracer.autoTotem.shieldBack").withStyle(ChatFormatting.GOLD));
+		missingSince = -1;
+		lostTotem = false;
+		return true;
+	}
+
+	/** The slot of the shield that was swapped out, or failing that any shield, the main inventory before the hotbar. */
+	private static int findShield(Inventory inventory) {
+		int any = -1;
+
+		for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
+			int slot = (i + Inventory.getSelectionSize()) % Inventory.INVENTORY_SIZE;
+			ItemStack stack = inventory.getItem(slot);
+
+			if (ItemStack.isSameItemSameComponents(stack, shieldOut)) {
+				return slot;
+			}
+
+			if (any < 0 && isShield(stack)) {
+				any = slot;
+			}
+		}
+
+		return any;
+	}
+
+	/** Whether a shield swapped out on low health is waiting to go back. */
+	public static boolean isShieldOut() {
+		return shieldOutSince >= 0;
 	}
 
 	/** Whether health is at or below the chosen number of hearts, when that's on. */

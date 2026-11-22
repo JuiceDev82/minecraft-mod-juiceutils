@@ -126,7 +126,10 @@ public class BaseTracerClient implements ClientModInitializer {
 			)));
 		}
 
-		ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> TakeAll.addButton(screen));
+		ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+			TakeAll.addButton(screen);
+			Sorter.addButtons(screen);
+		});
 		ClientTickEvents.START_CLIENT_TICK.register(FreeLook::tick);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			while (freeLookKey.consumeClick()) {
@@ -162,6 +165,7 @@ public class BaseTracerClient implements ClientModInitializer {
 			SmartTool.tick(client);
 			HeldUse.tick(client);
 			TakeAll.tick(client);
+			Sorter.tick(client);
 			AutoEat.tick(client);
 			AutoTotem.tick(client);
 			AutoArmor.tick(client);

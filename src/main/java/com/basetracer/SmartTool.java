@@ -20,6 +20,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
@@ -29,11 +30,16 @@ import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * When the player starts mining a block, selects the best tool of the right kind in the hotbar: a pickaxe for stone
- * and ores, a shovel for dirt and sand, an axe for wood and a hoe for sculk. A worse one of the same kind in hand is swapped too.
+ * and ores, a shovel for dirt and sand, an axe for wood, a hoe for sculk, and shears or else a sword for cobwebs. A worse one of the same kind in hand is swapped too.
  * Ender chests and glass, which break into nothing useful otherwise, prefer a tool with Silk Touch. Boats get an axe.
  */
 public final class SmartTool {
-	private record Kind(Predicate<BlockState> blocks, TagKey<Item> tools) {
+	/** Blocks, the tools for them, and among those the ones used first whenever there's one, ahead of any speed. */
+	private record Kind(Predicate<BlockState> blocks, Predicate<ItemStack> tools, Predicate<ItemStack> preferred) {
+		Kind(Predicate<BlockState> blocks, TagKey<Item> tools) {
+			this(blocks, stack -> stack.is(tools), stack -> false);
+		}
+
 		Kind(TagKey<Block> blocks, TagKey<Item> tools) {
 			this(state -> state.is(blocks), tools);
 		}
@@ -47,6 +53,8 @@ public final class SmartTool {
 			Blocks.SCULK_SENSOR, Blocks.CALIBRATED_SCULK_SENSOR);
 
 	private static final List<Kind> KINDS = List.of(
+			// Shears cut cobwebs quickly and keep the web; without them, a sword cuts them quickly too and gets the string.
+			new Kind(state -> state.is(Blocks.COBWEB), stack -> stack.is(Items.SHEARS) || stack.is(ItemTags.SWORDS), stack -> stack.is(Items.SHEARS)),
 			new Kind(state -> SCULK.contains(state.getBlock()), ItemTags.HOES),
 			new Kind(BlockTags.MINEABLE_WITH_PICKAXE, ItemTags.PICKAXES),
 			new Kind(BlockTags.MINEABLE_WITH_SHOVEL, ItemTags.SHOVELS),
@@ -56,6 +64,8 @@ public final class SmartTool {
 	private static final float DROPS_BONUS = 10_000F;
 	/** And getting the block itself back matters more still. */
 	private static final float SILK_BONUS = 100_000F;
+	/** A tool chosen first for a block, such as shears for cobwebs, even over one that gets other drops. */
+	private static final float PREFERRED_BONUS = 50_000F;
 
 	/** An item's level of an enchantment, 0 without it. */
 	@FunctionalInterface
@@ -123,7 +133,7 @@ public final class SmartTool {
 	private static float score(ItemStack stack, BlockState state, Kind kind, boolean silk, Enchants enchants) {
 		boolean hasSilk = silk && enchants.level(Enchantments.SILK_TOUCH, stack) > 0;
 
-		if (nearlyBroken(stack) || (kind != null ? !stack.is(kind.tools()) : !hasSilk)) {
+		if (nearlyBroken(stack) || (kind != null ? !kind.tools().test(stack) : !hasSilk)) {
 			return 0F;
 		}
 
@@ -137,7 +147,8 @@ public final class SmartTool {
 
 		// Remaining durability only breaks ties between otherwise equal tools.
 		float durability = stack.isDamageableItem() ? (stack.getMaxDamage() - stack.getDamageValue()) / (float) stack.getMaxDamage() : 1F;
-		return speed + durability * 0.01F + (kind != null && stack.isCorrectToolForDrops(state) ? DROPS_BONUS : 0F) + (hasSilk ? SILK_BONUS : 0F);
+		return speed + durability * 0.01F + (kind != null && stack.isCorrectToolForDrops(state) ? DROPS_BONUS : 0F) + (hasSilk ? SILK_BONUS : 0F)
+				+ (kind != null && kind.preferred().test(stack) ? PREFERRED_BONUS : 0F);
 	}
 
 	/** Left alone so that a favourite tool isn't broken by a switch the player didn't make. */
