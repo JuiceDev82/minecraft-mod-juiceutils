@@ -40,7 +40,7 @@ public final class DroppedItems {
 	private record Death(Vec3 pos, long tick) {
 	}
 
-	public record ItemMark(AABB box, Vec3 labelPos, String label) {
+	public record ItemMark(int entityId, AABB box, Vec3 labelPos, String label) {
 	}
 
 	private final Deque<Death> deaths = new ArrayDeque<>();
@@ -141,7 +141,7 @@ public final class DroppedItems {
 		for (ItemEntity item : items.subList(0, Math.min(items.size(), max))) {
 			Vec3 offset = item.getPosition(partialTick).subtract(item.position());
 			AABB box = item.getBoundingBox().inflate(BOX_GROWTH).move(offset);
-			marks.add(new ItemMark(box, new Vec3(box.getCenter().x, box.maxY + LABEL_HEIGHT, box.getCenter().z), label(item.getItem())));
+			marks.add(new ItemMark(item.getId(), box, new Vec3(box.getCenter().x, box.maxY + LABEL_HEIGHT, box.getCenter().z), label(item.getItem())));
 		}
 
 		return marks;

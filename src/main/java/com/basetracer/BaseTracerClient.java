@@ -166,8 +166,9 @@ public class BaseTracerClient implements ClientModInitializer {
 			HeldUse.tick(client);
 			TakeAll.tick(client);
 			Sorter.tick(client);
-			AutoEat.tick(client);
+			// The totem first: low on health, it goes in before a meal starts, which some servers won't take a swap during.
 			AutoTotem.tick(client);
+			AutoEat.tick(client);
 			AutoArmor.tick(client);
 			AutoWeapon.tick(client);
 			NAME_TAGS.tick(client);

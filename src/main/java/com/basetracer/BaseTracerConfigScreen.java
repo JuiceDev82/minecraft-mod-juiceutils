@@ -319,14 +319,6 @@ public class BaseTracerConfigScreen extends OptionsSubScreen {
 				Mth.clamp(Math.round(config.lineWidth), MIN_LINE_WIDTH, MAX_LINE_WIDTH),
 				value -> config.lineWidth = value
 		));
-		this.list.addBig(new OptionInstance<>(
-				"options.basetracer.mobOpacity",
-				OptionInstance.noTooltip(),
-				(caption, value) -> Options.genericValueLabel(caption, Component.translatable("options.basetracer.percent", value)),
-				new OptionInstance.IntRange(0, 100, true),
-				config.mobOpacity,
-				value -> config.mobOpacity = value
-		));
 
 		this.addSection("options.basetracer.section.freeLook");
 		this.list.addBig(new OptionInstance<>(

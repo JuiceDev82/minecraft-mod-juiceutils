@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
 
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
@@ -31,12 +34,15 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -78,8 +84,6 @@ public final class BaseTracerRenderer {
 	public static final int MAX_ITEM_HIGHLIGHTS = 128;
 	private static final int ITEM_LABEL_COLOR = 0xFFFFFFFF;
 	private static final int NAME_TAG_COLOR = 0xFFFFFF88;
-	/** How opaque a mob's fill is compared to its outline, so that the mob stays visible inside its box. */
-	private static final float MOB_FILL_SHARE = 0.3F;
 	private static final float LABEL_SCALE = 0.5F;
 	/** Before scaling. */
 	private static final int LABEL_LINE_HEIGHT = 10;
@@ -100,6 +104,10 @@ public final class BaseTracerRenderer {
 	private List<BlockMark> blockMarks = List.of();
 	private List<AABB> players = List.of();
 	private List<DroppedItems.ItemMark> items = List.of();
+	/** The dropped items shown, outlined by the game along their shape as if glowing. */
+	private IntOpenHashSet outlinedItems = new IntOpenHashSet();
+	/** Where the entities matching a rule are, and that rule: they're outlined like items, not drawn as blocks. */
+	private Long2ObjectOpenHashMap<BaseRule> entityMarks = new Long2ObjectOpenHashMap<>();
 	private List<NameTags.Tag> nameTags = List.of();
 	private int snapshotRevision = -1;
 	private long snapshotCameraBlock;
@@ -120,6 +128,8 @@ public final class BaseTracerRenderer {
 			this.blockMarks = List.of();
 			this.players = List.of();
 			this.items = List.of();
+			this.outlinedItems = new IntOpenHashSet();
+			this.entityMarks = new Long2ObjectOpenHashMap<>();
 			this.nameTags = List.of();
 			this.snapshotRevision = -1;
 			return;
@@ -131,8 +141,15 @@ public final class BaseTracerRenderer {
 		// Mobs and players move every frame, so unlike the rest these can't wait for a change.
 		Minecraft client = Minecraft.getInstance();
 		float partialTick = client.getDeltaTracker().getGameTimeDeltaPartialTick(false);
-		this.players = this.config.showPlayers ? otherPlayers(client.level, client.player, partialTick) : List.of();
+		this.players = this.config.showPlayers && this.config.showPlayerTracers ? otherPlayers(client.level, client.player, partialTick) : List.of();
 		this.items = this.config.showItems ? BaseTracerClient.DROPPED_ITEMS.marks(client.level, this.config.itemMode, camera, partialTick, MAX_ITEM_HIGHLIGHTS) : List.of();
+		IntOpenHashSet outlinedItems = new IntOpenHashSet();
+
+		for (DroppedItems.ItemMark item : this.items) {
+			outlinedItems.add(item.entityId());
+		}
+
+		this.outlinedItems = outlinedItems;
 		this.nameTags = this.config.nameTags ? BaseTracerClient.NAME_TAGS.tags(client.level, this.config, camera, partialTick) : List.of();
 
 		TracerMode tracerMode = this.config.tracerMode;
@@ -141,7 +158,7 @@ public final class BaseTracerRenderer {
 		if (this.snapshotRevision != this.tracker.revision() || this.snapshotCameraBlock != cameraBlock || this.snapshotTracerMode != tracerMode || this.snapshotLimit != limit) {
 			this.highlights = this.tracker.snapshot(camera, tracerMode, limit);
 			this.snapshotLimit = limit;
-			this.blockMarks = nearestBlocks(this.highlights, camera, MAX_BLOCK_HIGHLIGHTS);
+			this.splitMarks(client.level, nearestBlocks(this.highlights, camera, MAX_BLOCK_HIGHLIGHTS));
 			this.labelled = this.highlights.stream()
 					.filter(highlight -> !highlight.labelLines().isEmpty())
 					.sorted(Comparator.comparingDouble(ChunkHighlight::nearestDistance))
@@ -160,7 +177,7 @@ public final class BaseTracerRenderer {
 	public void render() {
 		boolean showBases = !this.highlights.isEmpty() && (this.config.showChunkHighlights || this.config.showTracers || this.config.showBlockHighlights);
 
-		if (!showBases && this.players.isEmpty() && this.items.isEmpty()) {
+		if (!showBases && this.players.isEmpty()) {
 			return;
 		}
 
@@ -196,21 +213,14 @@ public final class BaseTracerRenderer {
 			}
 		}
 
-		for (DroppedItems.ItemMark item : this.items) {
-			this.addEntityHighlight(lines, item.box(), cameraState.pos, this.config.itemArgb());
-		}
-
+		// Players themselves are outlined by the game; only the tracers to them are drawn here.
 		for (AABB player : this.players) {
-			this.addEntityHighlight(lines, player, cameraState.pos, this.config.playerArgb());
-
-			if (this.config.showPlayerTracers) {
-				Vec3 center = player.getCenter();
-				lines.color = this.config.playerArgb() | 0xFF000000;
-				lines.line(
-						lines.forward.x * TRACER_START_DISTANCE, lines.forward.y * TRACER_START_DISTANCE, lines.forward.z * TRACER_START_DISTANCE,
-						(float) (center.x - cameraState.pos.x), (float) (center.y - cameraState.pos.y), (float) (center.z - cameraState.pos.z)
-				);
-			}
+			Vec3 center = player.getCenter();
+			lines.color = this.config.playerArgb() | 0xFF000000;
+			lines.line(
+					lines.forward.x * TRACER_START_DISTANCE, lines.forward.y * TRACER_START_DISTANCE, lines.forward.z * TRACER_START_DISTANCE,
+					(float) (center.x - cameraState.pos.x), (float) (center.y - cameraState.pos.y), (float) (center.z - cameraState.pos.z)
+			);
 		}
 
 		STAGED_BUFFER.upload();
@@ -254,13 +264,56 @@ public final class BaseTracerRenderer {
 		addBoxLines(lines, minX, minY, minZ, maxX, maxY, maxZ);
 	}
 
+	/** Separates the marks of blocks, drawn here, from those of entities, which the game outlines. */
+	private void splitMarks(@Nullable ClientLevel level, List<BlockMark> marks) {
+		List<BlockMark> blocks = new ArrayList<>(marks.size());
+		Long2ObjectOpenHashMap<BaseRule> entities = new Long2ObjectOpenHashMap<>();
+
+		for (BlockMark mark : marks) {
+			if (level != null && !this.config.matches(mark.rule(), level.getBlockState(BlockPos.of(mark.pos())))) {
+				entities.put(mark.pos(), mark.rule());
+			} else {
+				blocks.add(mark);
+			}
+		}
+
+		this.blockMarks = blocks;
+		this.entityMarks = entities;
+	}
+
+	/**
+	 * The color of the outline the game draws around an entity as if it were glowing, following its shape, or -1 for
+	 * none: listed mobs, other players, dropped items being shown, and entities matching a base rule.
+	 */
+	public static int outlineColor(Entity entity) {
+		BaseTracerConfig config = BaseTracerClient.CONFIG;
+
+		if (!config.enabled || !entity.isAlive()) {
+			return -1;
+		}
+
+		if (config.showHostileMobs && config.isMobHighlighted(entity.getType())) {
+			return config.hostileMobArgb() & 0xFFFFFF;
+		}
+
+		if (entity instanceof Player) {
+			return config.showPlayers && entity != Minecraft.getInstance().player ? config.playerArgb() & 0xFFFFFF : -1;
+		}
+
+		BaseTracerRenderer renderer = BaseTracerClient.RENDERER;
+
+		if (entity instanceof ItemEntity) {
+			return config.showItems && renderer.outlinedItems.contains(entity.getId()) ? config.itemArgb() & 0xFFFFFF : -1;
+		}
+
+		BaseRule rule = config.showBlockHighlights ? renderer.entityMarks.get(entity.blockPosition().asLong()) : null;
+		return rule != null && config.matches(rule, BaseTracker.find(entity)) ? rule.colorArgb() & 0xFFFFFF : -1;
+	}
+
 	private void addBlockHighlight(LineBuilder lines, BlockMark mark, Vec3 camera) {
 		float minX = (float) (BlockPos.getX(mark.pos()) - camera.x);
 		float minY = (float) (BlockPos.getY(mark.pos()) - camera.y);
 		float minZ = (float) (BlockPos.getZ(mark.pos()) - camera.z);
-		float maxX = minX + 1F;
-		float maxY = minY + 1F;
-		float maxZ = minZ + 1F;
 		// Fades out up close, so that a block being looked at or mined isn't covered. One behind a wall stays, since
 		// then the highlight is the only way to see it.
 		float strength = nearStrength(blockDistance(mark.pos(), camera));
@@ -274,9 +327,20 @@ public final class BaseTracerRenderer {
 			return;
 		}
 
-		this.addFill(lines.buffer, lines.pose, Math.round(BLOCK_FILL_ALPHA * strength) << 24 | mark.argb() & 0xFFFFFF, minX, minY, minZ, maxX, maxY, maxZ);
+		// Along the block's own shape, like the outline of the block being looked at: just the stick of a torch. A block
+		// with no shape, such as light, gets the whole block.
+		VoxelShape shape = level != null ? level.getBlockState(BlockPos.of(mark.pos())).getShape(level, BlockPos.of(mark.pos())) : Shapes.block();
+
+		if (shape.isEmpty()) {
+			shape = Shapes.block();
+		}
+
+		int fill = Math.round(BLOCK_FILL_ALPHA * strength) << 24 | mark.argb() & 0xFFFFFF;
+		shape.forAllBoxes((x1, y1, z1, x2, y2, z2) -> this.addFill(lines.buffer, lines.pose, fill,
+				minX + (float) x1, minY + (float) y1, minZ + (float) z1, minX + (float) x2, minY + (float) y2, minZ + (float) z2));
 		lines.color = Math.round(0xFF * strength) << 24 | mark.argb() & 0xFFFFFF;
-		addBoxLines(lines, minX, minY, minZ, maxX, maxY, maxZ);
+		shape.forAllEdges((x1, y1, z1, x2, y2, z2) -> lines.line(minX + (float) x1, minY + (float) y1, minZ + (float) z1,
+				minX + (float) x2, minY + (float) y2, minZ + (float) z2));
 	}
 
 	/** From the camera to the nearest point of a block, so 0 inside it. */
@@ -334,7 +398,7 @@ public final class BaseTracerRenderer {
 		for (ChunkHighlight highlight : highlights) {
 			for (RuleMatch match : highlight.matches()) {
 				for (long pos : match.ownBlocks()) {
-					marks.add(new BlockMark(pos, match.rule().colorArgb()));
+					marks.add(new BlockMark(pos, match.rule().colorArgb(), match.rule()));
 				}
 			}
 		}
@@ -343,27 +407,12 @@ public final class BaseTracerRenderer {
 		return marks.size() > max ? List.copyOf(marks.subList(0, max)) : marks;
 	}
 
-	private void addEntityHighlight(LineBuilder lines, AABB mob, Vec3 camera, int color) {
-		float minX = (float) (mob.minX - camera.x);
-		float minY = (float) (mob.minY - camera.y);
-		float minZ = (float) (mob.minZ - camera.z);
-		float maxX = (float) (mob.maxX - camera.x);
-		float maxY = (float) (mob.maxY - camera.y);
-		float maxZ = (float) (mob.maxZ - camera.z);
-		int alpha = Math.round((color >>> 24) * this.config.mobOpacity / 100F);
-
-		this.addFill(lines.buffer, lines.pose, Math.round(alpha * MOB_FILL_SHARE) << 24 | color & 0xFFFFFF, minX, minY, minZ, maxX, maxY, maxZ);
-		lines.color = alpha << 24 | color & 0xFFFFFF;
-		addBoxLines(lines, minX, minY, minZ, maxX, maxY, maxZ);
-	}
-
 	/**
 	 * Whether a mob gets the highlight outline: alive, and on the mob list, with mob highlights on. Drawn by the game
 	 * as if glowing, so it follows the mob's shape rather than a box around it.
 	 */
 	public static boolean isOutlined(Entity entity) {
-		BaseTracerConfig config = BaseTracerClient.CONFIG;
-		return config.enabled && config.showHostileMobs && entity.isAlive() && config.isMobHighlighted(entity.getType());
+		return outlineColor(entity) >= 0;
 	}
 
 	/** The boxes of living listed mobs where they appear this frame, keeping the nearest if there are too many. */
@@ -645,8 +694,8 @@ public final class BaseTracerRenderer {
 		STAGED_BUFFER.close();
 	}
 
-	/** One block to highlight, as a packed position and the color of the rule it belongs to. */
-	public record BlockMark(long pos, int argb) {
+	/** One block or entity to highlight, as a packed position, and the rule it belongs to with its color. */
+	public record BlockMark(long pos, int argb, BaseRule rule) {
 	}
 
 	/**

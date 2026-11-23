@@ -174,8 +174,6 @@ public final class BaseTracerConfig {
 	public int autoEatHealth = 50;
 	/** How many bases are shown, the highest priority and then the nearest. Above {@link #MAX_BASES_LIMIT} means all. */
 	public int maxBases = 10;
-	/** Percent. Applies to both the outline and the fill of player and item boxes. Mobs are outlined solid instead. */
-	public int mobOpacity = 50;
 	/** Percent. Each rule's color fills its highlight at this opacity, and more for busier chunks. */
 	public int fillOpacity = 9;
 	public String hostileMobColor = "FFFF3333";
@@ -340,7 +338,6 @@ public final class BaseTracerConfig {
 		config.autoEatHunger = Mth.clamp(readInt(properties, "autoEatHunger", config.autoEatHunger), 1, MAX_AUTO_EAT_HUNGER);
 		config.autoEatHealth = Mth.clamp(readInt(properties, "autoEatHealth", config.autoEatHealth), 0, MAX_AUTO_EAT_HEALTH);
 		config.maxBases = Mth.clamp(readInt(properties, "maxBases", config.maxBases), 1, MAX_BASES_LIMIT + 1);
-		config.mobOpacity = Mth.clamp(readInt(properties, "mobOpacity", config.mobOpacity), 0, 100);
 		config.fillOpacity = Mth.clamp(readInt(properties, "fillOpacity", config.fillOpacity), 0, 100);
 		config.hostileMobColor = properties.getProperty("hostileMobColor", config.hostileMobColor);
 		config.playerColor = properties.getProperty("playerColor", config.playerColor);
@@ -581,7 +578,6 @@ public final class BaseTracerConfig {
 		properties.setProperty("autoEatHealth", String.valueOf(this.autoEatHealth));
 		properties.setProperty("maxBases", String.valueOf(this.maxBases));
 		properties.setProperty("xrayBlocks", String.join(",", this.xrayBlockIds));
-		properties.setProperty("mobOpacity", String.valueOf(this.mobOpacity));
 		properties.setProperty("fillOpacity", String.valueOf(this.fillOpacity));
 		properties.setProperty("hostileMobColor", this.hostileMobColor);
 		properties.setProperty("playerColor", this.playerColor);

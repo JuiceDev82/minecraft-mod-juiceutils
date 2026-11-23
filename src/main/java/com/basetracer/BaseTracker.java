@@ -145,13 +145,7 @@ public final class BaseTracker {
 					continue;
 				}
 
-				EntityFind find = new EntityFind(
-						entity.blockPosition().asLong(),
-						entity.getType(),
-						entity.getType().getDescription().getString(),
-						entity.hasCustomName(),
-						isTamed(entity)
-				);
+				EntityFind find = find(entity);
 
 				if (this.config.isTracked(find)) {
 					found.computeIfAbsent(ChunkPos.pack(entity.blockPosition()), key -> new ArrayList<>()).add(find);
@@ -200,6 +194,12 @@ public final class BaseTracker {
 	 * Camels count as tamed from birth, so village camels would match too. Only a saddle says a player has
 	 * been at one. Wandering traders' llamas belong to the trader.
 	 */
+	/** What base rules go by for an entity. */
+	public static EntityFind find(Entity entity) {
+		return new EntityFind(entity.blockPosition().asLong(), entity.getType(), entity.getType().getDescription().getString(), entity.hasCustomName(),
+				isTamed(entity));
+	}
+
 	private static boolean isTamed(Entity entity) {
 		if (entity instanceof Camel camel) {
 			return camel.isSaddled();

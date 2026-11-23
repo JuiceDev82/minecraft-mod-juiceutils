@@ -9,12 +9,13 @@ Because the mod is client-only, it works on any server. The server doesn't need 
 ## Features
 
 - **Bases:** highlights chunks and blocks that match your rules, such as light sources or player-made blocks, with tracer
-  lines and labels pointing to them. Rules are listed highest priority first. Close-up highlights fade so they don't
-  cover what you're looking at, but stay when the block is behind a wall.
-- **Mobs and players:** outlines hostile mobs along their shape and highlights players. Warns you when a hostile mob is
+  lines and labels pointing to them. Each block is highlighted along its own shape, so a torch shows just the torch,
+  and entities that match a rule are outlined along their shape. Rules are listed highest priority first. Close-up
+  highlights fade so they don't cover what you're looking at, but stay when the block is behind a wall.
+- **Mobs and players:** outlines hostile mobs and other players along their shape. Warns you when a hostile mob is
   close; piglins and zombified piglins only count when they're aggressive. A message and a ding tell you when a player
   comes into or goes out of range.
-- **Items:** labels dropped items.
+- **Items:** labels dropped items and outlines them along their shape.
 - **Name Tags:** shows the name above the entities and blocks you choose, such as "Acacia Boat" above a boat.
 - **X-Ray:** shows only the blocks you choose.
 - **Free Look:** moves the camera around without turning your character.
@@ -25,7 +26,8 @@ Because the mod is client-only, it works on any server. The server doesn't need 
   low. When your hotbar runs out of food, it moves the best food from the rest of your inventory into it.
 - **Auto Totem:** keeps a totem of undying in your offhand, waiting a time you choose after one pops. A shield in your
   offhand stays until you take it out, unless your health drops below a level you choose. Then the shield goes back
-  once your health and hunger are full again and at least 30 seconds have passed.
+  once your health and hunger are full again, at least 15 seconds have passed and you're standing still. If the server
+  undoes either swap, it's done again.
 - **Auto Armor:** wears the best armor in your inventory, counting protection enchantments, one piece every half second.
   While an elytra is on, no chestplate goes on. Anything with Curse of Binding is never put on.
 - **Auto Weapon:** when you hit a mob or player, switches to the best sword in your hotbar, or the best axe if you have

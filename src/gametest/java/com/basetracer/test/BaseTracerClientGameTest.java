@@ -487,7 +487,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 				true, true));
 		check(info.equals("10m \u00B7 20, 100, 4"), "Wrong label info: " + info);
 
-		// Other players get boxes, and the player looking never does.
+		// Other players are outlined, and the player looking never is.
+		check(context.computeOnClient(client -> !BaseTracerRenderer.isOutlined(client.player)), "The player looking shouldn't be outlined");
 		check(context.computeOnClient(client -> BaseTracerRenderer.otherPlayers(client.level, client.player, 0F)).isEmpty(), "The player looking shouldn't be highlighted");
 		check(context.computeOnClient(client -> BaseTracerRenderer.otherPlayers(client.level, null, 0F)).size() == 1, "Players should be found");
 
@@ -495,6 +496,16 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		connection.waitForChunksRender();
 		context.waitTicks(20);
 		context.takeScreenshot("basetracer_entity_rules");
+		// Entities matching a rule are outlined along their shape in the rule's color, rather than boxed as blocks.
+		context.runOnClient(client -> {
+			for (Entity entity : client.level.entitiesForRendering()) {
+				if (entity.getType() == EntityTypes.ARMOR_STAND) {
+					check(BaseTracerRenderer.outlineColor(entity) == 0xFFAAAA, "An armor stand should be outlined in its rule's color");
+				} else if (entity.getType() == EntityTypes.HORSE && !((net.minecraft.world.entity.animal.equine.AbstractHorse) entity).isTamed()) {
+					check(!BaseTracerRenderer.isOutlined(entity), "An untamed horse shouldn't be outlined");
+				}
+			}
+		});
 
 		// Choosing an entity through the screen. A plain horse then counts too, under its own name.
 		BaseRule pets = context.computeOnClient(client -> BaseTracerClient.CONFIG.rules.stream().filter(rule -> rule.name.equals("Pets & Named Mobs")).findFirst().orElseThrow());
@@ -1918,7 +1929,23 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		}), "On the server, the totem should be in the offhand and the shield where the totem was");
 		check(context.computeOnClient(client -> AutoTotem.isShieldOut()), "The shield should be waiting to go back");
 
-		// Healed, but not yet full on food: the totem stays, even past the 30 seconds.
+		// The server undoing the swap, as one turned down mid-meal shows once the meal ends: the totem goes back in.
+		// Healed above the low mark first, so only the undoing brings the totem back.
+		server.runCommand("effect give @a minecraft:instant_health 1 0");
+		context.waitFor(client -> !AutoTotem.isLowHealth(client.player, BaseTracerClient.CONFIG), TIMEOUT_TICKS);
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:shield");
+		server.runCommand("item replace entity @a inventory.5 with minecraft:totem_of_undying");
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.SHIELD), TIMEOUT_TICKS);
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> AutoTotem.isShieldOut() && !AutoTotem.isLowHealth(client.player, BaseTracerClient.CONFIG)),
+				"After the server undid the swap, the totem should be back in with the shield still waiting");
+		check(server.computeOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			return player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && player.getInventory().getItem(14).is(Items.SHIELD);
+		}), "On the server, the totem should be back in the offhand");
+
+		// Healed, but not yet full on food: the totem stays, even past the 15 seconds.
 		server.runOnServer(minecraftServer -> {
 			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
 			player.getFoodData().setFoodLevel(15);
@@ -1940,6 +1967,18 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
 			return player.getOffhandItem().is(Items.SHIELD) && player.getInventory().getItem(14).is(Items.TOTEM_OF_UNDYING);
 		}), "On the server, the shield should be back in the offhand");
+
+		// The server undoing putting the shield back: it's put back again.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:totem_of_undying");
+		server.runCommand("item replace entity @a inventory.5 with minecraft:shield");
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING), TIMEOUT_TICKS);
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.SHIELD), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> {
+			var player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			return player.getOffhandItem().is(Items.SHIELD) && player.getInventory().getItem(14).is(Items.TOTEM_OF_UNDYING);
+		}), "On the server, the shield should be back in the offhand after the server undid it");
+		context.waitTicks(AutoTotem.BACK_CHECK_TICKS + 5);
 
 		// A totem put in by hand, with a shield in the inventory, isn't waiting to be swapped back.
 		server.runCommand("item replace entity @a weapon.offhand with minecraft:totem_of_undying");
@@ -2399,9 +2438,14 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		});
 		context.waitTicks(5);
 		context.takeScreenshot("basetracer_items_all");
+		// Shown items are outlined along their shape, like glowing, rather than boxed.
+		context.runOnClient(client -> check(BaseTracerRenderer.outlineColor(findItem(client, Items.STICK)) == (BaseTracerClient.CONFIG.itemArgb() & 0xFFFFFF),
+				"A shown item should be outlined in the item color"));
 		context.runOnClient(client -> BaseTracerClient.CONFIG.itemMode = ItemMode.MOB_DROPS);
 		context.waitTicks(5);
 		context.takeScreenshot("basetracer_items_mob_drops");
+		context.runOnClient(client -> check(!BaseTracerRenderer.isOutlined(findItem(client, Items.STICK))
+				&& BaseTracerRenderer.isOutlined(findItem(client, Items.DIAMOND)), "Only mob drops should be outlined"));
 
 		check(context.computeOnClient(client -> splashText(ModuleSplash.groups(BaseTracerClient.CONFIG, false)).stream().anyMatch(line -> line.startsWith("Items & Tags: Item Highlights (Mob Drops)"))), "Splash should list item highlights");
 		context.runOnClient(client -> {
@@ -2475,7 +2519,8 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 		server.runCommand("tp @e[type=minecraft:zombie,tag=warn] 14.5 100 8.5");
 		context.waitFor(client -> BaseTracerClient.MOB_WARNING.dings() == dings + 1, TIMEOUT_TICKS);
 		String message = context.computeOnClient(client -> BaseTracerClient.MOB_WARNING.lastMessage().getString());
-		check(message.equals("\u26a0 Zombie approaching (6m)"), "Wrong warning: " + message);
+		// The zombie slides over to where it was teleported, so the warning can come as it passes 7m.
+		check(message.equals("\u26a0 Zombie approaching (6m)") || message.equals("\u26a0 Zombie approaching (7m)"), "Wrong warning: " + message);
 		context.takeScreenshot("basetracer_mob_warning");
 
 		// Coming closer still doesn't ding again for the same zombie.
@@ -2783,7 +2828,6 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 			reloaded.fillOpacity = 40;
 			reloaded.showHostileMobs = true;
 			reloaded.hostileMobColor = "12345678";
-			reloaded.mobOpacity = 35;
 			reloaded.showPlayers = true;
 			reloaded.showPlayerTracers = false;
 			reloaded.showLabelDistance = false;
@@ -2861,7 +2905,7 @@ public class BaseTracerClientGameTest implements FabricClientGameTest {
 					&& !withRules.isPutAllListed(Items.DIRT), "Take all settings lost on reload");
 			check(withRules.showPlayers && !withRules.showPlayerTracers && !withRules.showLabelDistance && !withRules.showLabelCoordinates, "Player or label settings lost on reload");
 			check(!withRules.showLabels && !withRules.showBlockHighlights && withRules.fillOpacity == 40, "Label, block highlight or opacity setting lost on reload");
-			check(withRules.showHostileMobs && withRules.hostileMobArgb() == 0x12345678 && withRules.mobOpacity == 35, "Hostile mob settings lost on reload");
+			check(withRules.showHostileMobs && withRules.hostileMobArgb() == 0x12345678, "Hostile mob settings lost on reload");
 			check(!withRules.isMobHighlighted(EntityTypes.ZOMBIE) && withRules.isMobHighlighted(EntityTypes.COW), "Mob list changes lost on reload");
 			check(withRules.isMobHighlighted(EntityTypes.SKELETON) && !withRules.isMobHighlighted(EntityTypes.PIG), "Mobs left alone should keep their default");
 
