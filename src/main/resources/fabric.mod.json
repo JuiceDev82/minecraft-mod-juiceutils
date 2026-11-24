@@ -1,25 +1,25 @@
 {
 	"schemaVersion": 1,
-	"id": "basetracer",
+	"id": "juiceclient",
 	"version": "${version}",
-	"name": "Base Tracer",
-	"description": "Finds likely player bases: highlights chunks matching rules you choose, such as light sources or combinations of blocks, and draws tracer lines to them.",
+	"name": "Juice Client",
+	"description": "Block and Entity ESP that finds likely player bases, with tracers, X-Ray and Free Look, plus quality-of-life tools such as Smart Tool, Auto Totem, Auto Eat and inventory sorting.",
 	"authors": [
 		"JuiceJavaGamer"
 	],
 	"license": "CC0-1.0",
-	"icon": "assets/basetracer/icon.png",
+	"icon": "assets/juiceclient/icon.png",
 	"environment": "client",
 	"entrypoints": {
 		"client": [
-			"com.basetracer.BaseTracerClient"
+			"com.juiceclient.JuiceClient"
 		],
 		"modmenu": [
-			"com.basetracer.BaseTracerModMenu"
+			"com.juiceclient.JuiceClientModMenu"
 		]
 	},
 	"mixins": [
-		"basetracer.mixins.json"
+		"juiceclient.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.20.1",

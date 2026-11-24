@@ -1,24 +1,33 @@
-# Base Tracer
+# Juice Client
 
-A client-side Fabric mod for Minecraft Java 26.2. It finds likely player bases: it highlights chunks that match rules you
-choose, such as light sources or combinations of blocks, and draws tracer lines to them. It also includes a set of
-quality-of-life tools.
+A client-side Fabric mod for Minecraft Java 26.2, with Block and Entity ESP and a set of quality-of-life tools. The ESP
+highlights the blocks and entities that match rules you choose, such as light sources or combinations of blocks, and
+the chunks they're in, with tracer lines to them. That makes player bases easy to find.
+
+Juice Client was called Base Tracer before 1.0.4. Your settings, exports and keys carry over: remove the old
+`basetracer` jar from your `mods` folder when you add this one.
 
 Because the mod is client-only, it works on any server. The server doesn't need it installed.
 
 ## Features
 
-- **Bases:** highlights chunks and blocks that match your rules, such as light sources or player-made blocks, with tracer
+- **Block and Entity ESP:** highlights chunks and blocks that match your rules, such as light sources or player-made blocks, with tracer
   lines and labels pointing to them. Each block is highlighted along its own shape, so a torch shows just the torch,
   and entities that match a rule are outlined along their shape. Rules are listed highest priority first. Close-up
   highlights fade so they don't cover what you're looking at, but stay when the block is behind a wall.
 - **Mobs and players:** outlines hostile mobs and other players along their shape. Warns you when a hostile mob is
   close; piglins and zombified piglins only count when they're aggressive. A message and a ding tell you when a player
   comes into or goes out of range.
-- **Items:** labels dropped items and outlines them along their shape.
+- **Items:** labels dropped items and outlines them along their shape, with the label in the outline color.
 - **Name Tags:** shows the name above the entities and blocks you choose, such as "Acacia Boat" above a boat.
 - **X-Ray:** shows only the blocks you choose.
 - **Free Look:** moves the camera around without turning your character.
+- **Trajectories:** shows the path of what you're about to throw or shoot, with an X where it lands: ender pearls,
+  snowballs, eggs, splash and lingering potions, bottles o' enchanting, wind charges, a bow being drawn, a loaded crossbow
+  and a trident being readied. A mob or player it would hit is outlined.
+- **Stack Boss Bars:** boss bars with the same name show as one, such as "Wither x3", instead of filling the screen.
+- **Armor Status:** shows the armor you wear in slots beside the offhand slot, each with roughly how much durability
+  it has left, in place of the armor bar above the hearts.
 - **Smart Tool:** switches to the best hotbar tool for the block you're mining, after a short delay to ignore misclicks. It
   prefers Silk Touch for glass and ender chests, uses shears (or else a sword) on cobwebs and an axe on boats, and
   switches back to your previous item when you let go.
@@ -48,20 +57,20 @@ Because the mod is client-only, it works on any server. The server doesn't need 
 
 | Key | Action |
 | --- | --- |
-| `L` | Toggle Base Tracer |
+| `L` | Toggle Juice Client |
 | `J` | Toggle Free Look |
 | `X` | Toggle X-Ray |
 | Mouse button 4 | Quick Use |
 
 Each settings section also has its own on/off key, unbound by default, shown next to its title in the settings.
-Searching "basetracer" under Options → Controls lists all of the mod's keys.
+Searching "Juice Client" under Options → Controls lists all of the mod's keys.
 
 You can change these under Options → Controls. Every feature can be adjusted or turned off in the mod's settings, which
 open from [Mod Menu](https://modrinth.com/mod/modmenu).
 
 ## Saving your settings
 
-**Export Settings**, at the top of the mod's settings, saves everything to a file in `config/basetracer-exports`. That
+**Export Settings**, at the top of the mod's settings, saves everything to a file in `config/juiceclient-exports`. That
 includes every option, your base rules and lists, and the mod's keys. **Import Settings...** lists those files and loads
 the one you click. Your settings from just before the import are saved there too, as `before-import_...`, so an
 import can be undone. Copy the files to another computer to take your setup with you.
@@ -70,7 +79,7 @@ import can be undone. Copy the files to another computer to take your setup with
 
 1. Install [Fabric Loader](https://fabricmc.net/use/) 0.20.1 or newer for Minecraft 26.2.
 2. Put [Fabric API](https://modrinth.com/mod/fabric-api) in your `mods` folder.
-3. Download `basetracer-<version>.jar` from the [Releases](../../releases) page and put it in your `mods` folder.
+3. Download `juiceclient-<version>.jar` from the [Releases](../../releases) page and put it in your `mods` folder.
 4. Optional: add [Mod Menu](https://modrinth.com/mod/modmenu) to open the settings in game.
 
 The mod requires Java 25.

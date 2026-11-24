@@ -1,0 +1,24 @@
+{
+	"required": true,
+	"package": "com.juiceclient.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"AbstractContainerScreenAccessor",
+		"BossHealthOverlayAccessor",
+		"BossHealthOverlayMixin",
+		"CameraMixin",
+		"ClientLevelMixin",
+		"EntityMixin",
+		"EntityRendererMixin",
+		"GameRendererMixin",
+		"KeyMappingMixin",
+		"LightCoordsUtilMixin",
+		"MinecraftMixin",
+		"MultiPlayerGameModeMixin",
+		"RenderSectionRegionMixin",
+		"SodiumLevelSliceMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

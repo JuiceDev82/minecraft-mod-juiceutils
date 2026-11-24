@@ -3,7 +3,7 @@ plugins {
 }
 
 base {
-	archivesName = 'basetracer'
+	archivesName = 'juiceclient'
 }
 
 repositories {
@@ -15,7 +15,7 @@ repositories {
 
 loom {
 	mods {
-		"basetracer" {
+		"juiceclient" {
 			sourceSet sourceSets.main
 		}
 	}
@@ -24,7 +24,7 @@ loom {
 fabricApi {
 	configureTests {
 		createSourceSet = true
-		modId = "basetracer-test"
+		modId = "juiceclient-test"
 		enableGameTests = false
 		enableClientGameTests = true
 	}
