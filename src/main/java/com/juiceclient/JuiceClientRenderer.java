@@ -88,6 +88,7 @@ public final class JuiceClientRenderer {
 	/** Around mob farms there can be thousands of items; the nearest are the ones worth showing. */
 	public static final int MAX_ITEM_HIGHLIGHTS = 128;
 	private static final int NAME_TAG_COLOR = 0xFFFFFF88;
+	/** Text at a label size of 100%. */
 	private static final float LABEL_SCALE = 0.5F;
 	/** Before scaling. */
 	private static final int LABEL_LINE_HEIGHT = 10;
@@ -539,18 +540,20 @@ public final class JuiceClientRenderer {
 		CameraRenderState camera = this.cameraState;
 		Matrix4f worldToClip = new Matrix4f(camera.projectionMatrix).mul(camera.viewRotationMatrix);
 		List<int[]> drawn = new ArrayList<>();
+		float scale = LABEL_SCALE * this.config.labelSize / 100F;
 
 		// Name tags first: they're the nearest, and each is a single short line.
 		if (nameTagLabels) {
 			for (NameTags.Tag tag : this.nameTags) {
-				drawLabel(graphics, font, worldToClip, camera, tag.pos(), List.of(new LabelLine(tag.label(), NAME_TAG_COLOR)), MAX_ITEM_LABEL_SHIFT, drawn);
+				drawLabel(graphics, font, scale, worldToClip, camera, tag.pos(), List.of(new LabelLine(tag.label(), NAME_TAG_COLOR)), MAX_ITEM_LABEL_SHIFT, drawn);
 			}
 		}
 
 		// Items first: they're nearby, and their labels are small enough to leave room for the chunks'.
 		if (itemLabels) {
 			for (DroppedItems.ItemMark item : this.items) {
-				drawLabel(graphics, font, worldToClip, camera, item.labelPos(), List.of(new LabelLine(item.label(), this.config.itemArgb() | 0xFF000000)), MAX_ITEM_LABEL_SHIFT, drawn);
+				String label = this.config.showLabelDistance ? itemLabel(item.label(), item.box().getCenter().distanceTo(camera.pos)) : item.label();
+				drawLabel(graphics, font, scale, worldToClip, camera, item.labelPos(), List.of(new LabelLine(label, this.config.itemArgb() | 0xFF000000)), MAX_ITEM_LABEL_SHIFT, drawn);
 			}
 		}
 
@@ -561,12 +564,12 @@ public final class JuiceClientRenderer {
 		// Nearest first, so that when labels would overlap the nearest one stays in place.
 		for (ChunkHighlight highlight : this.labelled) {
 			Vec3 anchor = new Vec3((highlight.chunkX() << 4) + 8, highlight.maxY() + 1, (highlight.chunkZ() << 4) + 8);
-			drawLabel(graphics, font, worldToClip, camera, anchor, this.withInfoLine(highlight), MAX_LABEL_SHIFT, drawn);
+			drawLabel(graphics, font, scale, worldToClip, camera, anchor, this.withInfoLine(highlight), MAX_LABEL_SHIFT, drawn);
 		}
 	}
 
 	/** A label whose bottom sits on a point in the world, moved up by up to {@code maxShift} to clear those drawn. */
-	private static void drawLabel(GuiGraphicsExtractor graphics, Font font, Matrix4f worldToClip, CameraRenderState camera, Vec3 anchor,
+	private static void drawLabel(GuiGraphicsExtractor graphics, Font font, float scale, Matrix4f worldToClip, CameraRenderState camera, Vec3 anchor,
 			List<LabelLine> labelLines, int maxShift, List<int[]> drawn) {
 		Vector4f clip = worldToClip.transform(new Vector4f(
 				(float) (anchor.x - camera.pos.x),
@@ -585,8 +588,8 @@ public final class JuiceClientRenderer {
 			width = Math.max(width, font.width(line.text()));
 		}
 
-		width = Mth.ceil(width * LABEL_SCALE);
-		int height = Mth.ceil(labelLines.size() * LABEL_LINE_HEIGHT * LABEL_SCALE);
+		width = Mth.ceil(width * scale);
+		int height = Mth.ceil(labelLines.size() * LABEL_LINE_HEIGHT * scale);
 		int left = Math.round((clip.x / clip.w + 1F) / 2F * graphics.guiWidth()) - width / 2;
 		int top = Math.round((1F - clip.y / clip.w) / 2F * graphics.guiHeight()) - height;
 		int[] box = {left - LABEL_PADDING, top - LABEL_PADDING, left + width + LABEL_PADDING, top + height + LABEL_PADDING};
@@ -610,7 +613,7 @@ public final class JuiceClientRenderer {
 		graphics.fill(box[0], box[1], box[2], box[3], LABEL_BACKGROUND);
 		graphics.pose().pushMatrix();
 		graphics.pose().translate(left, top);
-		graphics.pose().scale(LABEL_SCALE);
+		graphics.pose().scale(scale);
 		int y = 0;
 
 		for (LabelLine line : labelLines) {
@@ -633,6 +636,11 @@ public final class JuiceClientRenderer {
 		lines.add(new LabelLine(info, LABEL_INFO_COLOR));
 		lines.addAll(highlight.labelLines());
 		return lines;
+	}
+
+	/** An item's name with how far away it is, on one line to keep the label small. */
+	public static String itemLabel(String name, double distance) {
+		return name + " · " + Math.round(distance) + "m";
 	}
 
 	public static String labelInfo(ChunkHighlight highlight, boolean distance, boolean coordinates) {

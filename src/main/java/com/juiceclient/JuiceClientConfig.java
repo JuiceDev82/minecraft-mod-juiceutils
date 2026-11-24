@@ -155,6 +155,10 @@ public final class JuiceClientConfig {
 	public QuickUseAction quickUseAction = QuickUseAction.ENDER_PEARL;
 	public boolean autoTotem = true;
 	public boolean autoArmor = true;
+	/** Items on the Auto Drop list are thrown out as soon as they're in the inventory. */
+	public boolean autoDrop = true;
+	/** Items on the Anti Drop list can't be thrown out. */
+	public boolean antiDrop = true;
 	public boolean autoWeapon = true;
 	/** Ticks without hitting anything before the slot from before the weapon comes back. 0 keeps the weapon. */
 	public int autoWeaponReturn = 60;
@@ -188,6 +192,10 @@ public final class JuiceClientConfig {
 	public String hostileMobColor = "FFFF3333";
 	public String playerColor = "FF55AAFF";
 	public float lineWidth = 2.0F;
+	public static final int MIN_LABEL_SIZE = 50;
+	public static final int MAX_LABEL_SIZE = 150;
+	/** How big labels in the world are drawn, in percent of the size before this setting existed. */
+	public int labelSize = 80;
 	/** Blocks per second. */
 	public float freeLookSpeed = 20.0F;
 	// Kept as ids so that entries from a temporarily removed mod aren't lost.
@@ -196,6 +204,8 @@ public final class JuiceClientConfig {
 	private TreeSet<String> mobOverrides = new TreeSet<>();
 	private TreeSet<String> xrayBlockIds = new TreeSet<>(DEFAULT_XRAY_BLOCKS);
 	private TreeSet<String> putAllItemIds = new TreeSet<>();
+	private TreeSet<String> autoDropItemIds = new TreeSet<>();
+	private TreeSet<String> antiDropItemIds = new TreeSet<>();
 	/** Items Sort puts at the front, and at the back, ahead of the sort order. */
 	private TreeSet<String> sortFrontIds = new TreeSet<>();
 	private TreeSet<String> sortBackIds = new TreeSet<>();
@@ -311,6 +321,8 @@ public final class JuiceClientConfig {
 		config.takeAll = Boolean.parseBoolean(properties.getProperty("takeAll", String.valueOf(config.takeAll)));
 		config.autoTotem = Boolean.parseBoolean(properties.getProperty("autoTotem", String.valueOf(config.autoTotem)));
 		config.autoArmor = Boolean.parseBoolean(properties.getProperty("autoArmor", String.valueOf(config.autoArmor)));
+		config.autoDrop = Boolean.parseBoolean(properties.getProperty("autoDrop", String.valueOf(config.autoDrop)));
+		config.antiDrop = Boolean.parseBoolean(properties.getProperty("antiDrop", String.valueOf(config.antiDrop)));
 		config.autoWeapon = Boolean.parseBoolean(properties.getProperty("autoWeapon", String.valueOf(config.autoWeapon)));
 		config.autoWeaponReturn = Mth.clamp(readInt(properties, "autoWeaponReturn", config.autoWeaponReturn), 0, MAX_AUTO_WEAPON_RETURN);
 		config.autoTotemDelay = Mth.clamp(readInt(properties, "autoTotemDelay", config.autoTotemDelay), 0, MAX_AUTO_TOTEM_DELAY);
@@ -343,6 +355,8 @@ public final class JuiceClientConfig {
 			}
 		}
 
+		readIds(properties.getProperty("autoDropItems", ""), config.autoDropItemIds);
+		readIds(properties.getProperty("antiDropItems", ""), config.antiDropItemIds);
 		readIds(properties.getProperty("sortFront", ""), config.sortFrontIds);
 		readIds(properties.getProperty("sortBack", ""), config.sortBackIds);
 		config.sortGroupOrder = readGroupOrder(properties.getProperty("sortGroupOrder", ""));
@@ -365,6 +379,8 @@ public final class JuiceClientConfig {
 		} catch (NumberFormatException e) {
 			JuiceClient.LOGGER.warn("Ignoring invalid line width: {}", properties.getProperty("lineWidth"));
 		}
+
+		config.labelSize = Mth.clamp(readInt(properties, "labelSize", config.labelSize), MIN_LABEL_SIZE, MAX_LABEL_SIZE);
 
 		try {
 			config.freeLookSpeed = Float.parseFloat(properties.getProperty("freeLookSpeed", String.valueOf(config.freeLookSpeed)));
@@ -578,6 +594,10 @@ public final class JuiceClientConfig {
 		properties.setProperty("autoTotem", String.valueOf(this.autoTotem));
 		properties.setProperty("autoEatResupply", String.valueOf(this.autoEatResupply));
 		properties.setProperty("autoArmor", String.valueOf(this.autoArmor));
+		properties.setProperty("autoDrop", String.valueOf(this.autoDrop));
+		properties.setProperty("autoDropItems", String.join(",", this.autoDropItemIds));
+		properties.setProperty("antiDrop", String.valueOf(this.antiDrop));
+		properties.setProperty("antiDropItems", String.join(",", this.antiDropItemIds));
 		properties.setProperty("autoWeapon", String.valueOf(this.autoWeapon));
 		properties.setProperty("autoWeaponReturn", String.valueOf(this.autoWeaponReturn));
 		properties.setProperty("autoTotemDelay", String.valueOf(this.autoTotemDelay));
@@ -604,6 +624,7 @@ public final class JuiceClientConfig {
 		properties.setProperty("hostileMobColor", this.hostileMobColor);
 		properties.setProperty("playerColor", this.playerColor);
 		properties.setProperty("lineWidth", String.valueOf(this.lineWidth));
+		properties.setProperty("labelSize", String.valueOf(this.labelSize));
 		properties.setProperty("freeLookSpeed", String.valueOf(this.freeLookSpeed));
 		properties.setProperty("excludedBlocks", String.join(",", this.excludedBlocks));
 		properties.setProperty("mobOverrides", String.join(",", this.mobOverrides));
@@ -809,6 +830,59 @@ public final class JuiceClientConfig {
 
 	public void clearPutAllItems() {
 		this.putAllItemIds.clear();
+	}
+
+	public boolean isAutoDropListed(Item item) {
+		return this.autoDropItemIds.contains(BuiltInRegistries.ITEM.getKey(item).toString());
+	}
+
+	/** Listed for Auto Drop, unless Anti Drop protects it too. */
+	public boolean isAutoDropped(net.minecraft.world.item.ItemStack stack) {
+		return !stack.isEmpty() && this.isAutoDropListed(stack.getItem()) && !(this.antiDrop && this.isAntiDropped(stack));
+	}
+
+	public boolean hasAutoDropItems() {
+		return !this.autoDropItemIds.isEmpty();
+	}
+
+	public void setAutoDropItem(Item item, boolean listed) {
+		String id = BuiltInRegistries.ITEM.getKey(item).toString();
+
+		if (listed) {
+			this.autoDropItemIds.add(id);
+		} else {
+			this.autoDropItemIds.remove(id);
+		}
+	}
+
+	public void clearAutoDropItems() {
+		this.autoDropItemIds.clear();
+	}
+
+	public boolean isAntiDropListed(Item item) {
+		return this.antiDropItemIds.contains(BuiltInRegistries.ITEM.getKey(item).toString());
+	}
+
+	public boolean isAntiDropped(net.minecraft.world.item.ItemStack stack) {
+		return !stack.isEmpty() && this.isAntiDropListed(stack.getItem());
+	}
+
+	public boolean hasAntiDropItems() {
+		return !this.antiDropItemIds.isEmpty();
+	}
+
+	public void setAntiDropItem(Item item, boolean listed) {
+		String id = BuiltInRegistries.ITEM.getKey(item).toString();
+
+		if (listed) {
+			this.antiDropItemIds.add(id);
+		} else {
+			this.antiDropItemIds.remove(id);
+		}
+	}
+
+	public void clearAntiDropItems() {
+		this.antiDropItemIds.clear();
 	}
 
 	/** Whether Sort puts this item at the front, at the back, or by the sort order. */

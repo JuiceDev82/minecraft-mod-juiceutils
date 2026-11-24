@@ -178,6 +178,7 @@ public class JuiceClient implements ClientModInitializer {
 			AutoTotem.tick(client);
 			AutoEat.tick(client);
 			AutoArmor.tick(client);
+			AutoDrop.tick(client);
 			AutoWeapon.tick(client);
 			NAME_TAGS.tick(client);
 

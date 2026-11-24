@@ -89,6 +89,14 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 				OptionInstance.createBoolean("options.juiceclient.showLabelDistance", config.showLabelDistance, value -> config.showLabelDistance = value),
 				OptionInstance.createBoolean("options.juiceclient.showLabelCoordinates", config.showLabelCoordinates, value -> config.showLabelCoordinates = value)
 		);
+		this.list.addBig(new OptionInstance<>(
+				"options.juiceclient.labelSize",
+				OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.labelSize.tooltip")),
+				(caption, value) -> Options.genericValueLabel(caption, Component.translatable("options.juiceclient.labelSize.value", value)),
+				new OptionInstance.IntRange(JuiceClientConfig.MIN_LABEL_SIZE, JuiceClientConfig.MAX_LABEL_SIZE, true),
+				Mth.clamp(config.labelSize, JuiceClientConfig.MIN_LABEL_SIZE, JuiceClientConfig.MAX_LABEL_SIZE),
+				value -> config.labelSize = value
+		));
 
 		this.addSection("options.juiceclient.section.mobs");
 		this.list.addBig(OptionInstance.createBoolean("options.juiceclient.showHostileMobs", config.showHostileMobs, value -> config.showHostileMobs = value));
@@ -255,6 +263,30 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 						.create(Component.translatable("options.juiceclient.quickUseAction"), (button, value) -> config.quickUseAction = value)
 		);
 		this.addSubsection("options.juiceclient.subsection.storage");
+		this.list.addSmall(
+				OptionInstance.createBoolean(
+						"options.juiceclient.autoDrop",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.autoDrop.tooltip")),
+						config.autoDrop,
+						value -> config.autoDrop = value
+				).createButton(this.minecraft.options),
+				Button.builder(
+						Component.translatable("options.juiceclient.autoDropItems"),
+						button -> this.minecraft.gui.setScreen(ItemListScreen.autoDrop(this))
+				).build()
+		);
+		this.list.addSmall(
+				OptionInstance.createBoolean(
+						"options.juiceclient.antiDrop",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.antiDrop.tooltip")),
+						config.antiDrop,
+						value -> config.antiDrop = value
+				).createButton(this.minecraft.options),
+				Button.builder(
+						Component.translatable("options.juiceclient.antiDropItems"),
+						button -> this.minecraft.gui.setScreen(ItemListScreen.antiDrop(this))
+				).build()
+		);
 		this.list.addSmall(
 				OptionInstance.createBoolean("options.juiceclient.takeAll", config.takeAll, value -> config.takeAll = value),
 				new OptionInstance<>(

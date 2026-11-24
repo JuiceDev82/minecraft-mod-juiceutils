@@ -33,6 +33,8 @@ public enum SectionToggle {
 			flag(config -> config.autoEat, (config, value) -> config.autoEat = value),
 			flag(config -> config.autoTotem, (config, value) -> config.autoTotem = value),
 			flag(config -> config.autoArmor, (config, value) -> config.autoArmor = value),
+			flag(config -> config.autoDrop, (config, value) -> config.autoDrop = value),
+			flag(config -> config.antiDrop, (config, value) -> config.antiDrop = value),
 			flag(config -> config.autoWeapon, (config, value) -> config.autoWeapon = value),
 			flag(config -> config.takeAll, (config, value) -> config.takeAll = value),
 			flag(config -> config.sortButtons, (config, value) -> config.sortButtons = value),

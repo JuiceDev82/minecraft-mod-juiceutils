@@ -327,11 +327,55 @@ public final class BaseTracker {
 			}
 		}
 
+		if (mode == TracerMode.HIGHEST_PRIORITY) {
+			return withHighestPriorityTarget(highlights, camera);
+		}
+
 		if (mode == TracerMode.NEAREST_CHUNK || mode == TracerMode.MOST_SOURCES) {
 			ChunkHighlight onlyTarget = mode == TracerMode.NEAREST_CHUNK ? nearest : mostSources;
 			highlights.replaceAll(highlight -> highlight == onlyTarget ? highlight : highlight.withoutTargets());
 		}
 
+		return highlights;
+	}
+
+	/**
+	 * One tracer, to the nearest block of the highest priority rule with tracers on, so that one rare find isn't lost
+	 * among many common ones.
+	 */
+	private static List<ChunkHighlight> withHighestPriorityTarget(List<ChunkHighlight> highlights, Vec3 camera) {
+		ChunkHighlight best = null;
+		int bestPriority = Integer.MIN_VALUE;
+		double bestDistance = Double.MAX_VALUE;
+		long bestTarget = 0L;
+		int bestColor = 0;
+
+		for (ChunkHighlight highlight : highlights) {
+			for (RuleMatch match : highlight.matches()) {
+				int priority = match.rule().priority;
+
+				if (!match.rule().showTracer || priority < bestPriority) {
+					continue;
+				}
+
+				for (long pos : match.ownBlocks()) {
+					double distance = distanceSqr(pos, camera);
+
+					if (priority > bestPriority || distance < bestDistance) {
+						best = highlight;
+						bestPriority = priority;
+						bestDistance = distance;
+						bestTarget = pos;
+						bestColor = match.rule().colorArgb() | 0xFF000000;
+					}
+				}
+			}
+		}
+
+		ChunkHighlight target = best;
+		long targetPos = bestTarget;
+		int targetColor = bestColor;
+		highlights.replaceAll(highlight -> highlight == target ? highlight.withTarget(targetPos, targetColor) : highlight.withoutTargets());
 		return highlights;
 	}
 
@@ -610,6 +654,11 @@ public final class BaseTracker {
 			}
 
 			return priority;
+		}
+
+		ChunkHighlight withTarget(long target, int color) {
+			return new ChunkHighlight(this.chunkX, this.chunkZ, this.minY, this.maxY, this.sourceCount, this.nearestDistance, this.nearest,
+					new long[] {target}, new int[] {color}, this.matches, this.labelLines);
 		}
 
 		ChunkHighlight withoutTargets() {

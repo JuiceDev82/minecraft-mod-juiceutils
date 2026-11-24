@@ -6,7 +6,8 @@ public enum TracerMode {
 	EVERY_SOURCE("every_source"),
 	NEAREST_PER_CHUNK("nearest_per_chunk"),
 	NEAREST_CHUNK("nearest_chunk"),
-	MOST_SOURCES("most_sources");
+	MOST_SOURCES("most_sources"),
+	HIGHEST_PRIORITY("highest_priority");
 
 	private final Component label;
 

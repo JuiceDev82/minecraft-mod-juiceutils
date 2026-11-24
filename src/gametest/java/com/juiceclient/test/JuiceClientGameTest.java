@@ -49,6 +49,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerConnection;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 
+import com.juiceclient.AutoDrop;
 import com.juiceclient.AutoTotem;
 import com.juiceclient.BaseRule;
 import com.juiceclient.DroppedItems;
@@ -139,6 +140,8 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			testQuickUse(context, server);
 			testAutoTotem(context, server);
 			testAutoArmor(context, server);
+			testAutoDrop(context, server);
+			testAntiDrop(context, server);
 			testAutoWeapon(context, server);
 			testSettingsTransfer(context);
 			testFoodResupply(context, server);
@@ -154,6 +157,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			surveyStructures(context, server, connection);
 			buildScene(context, server);
 			testTracerModes(context, server);
+			testItemLabelDistance();
 			takeScreenshots(context, server, connection);
 			takeBusynessScreenshot(context, server, connection);
 			testToggleKey(context);
@@ -567,6 +571,8 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		allOff.autoEat = false;
 		allOff.autoTotem = false;
 		allOff.autoArmor = false;
+		allOff.autoDrop = false;
+		allOff.antiDrop = false;
 		allOff.sortButtons = false;
 		allOff.trajectories = false;
 		allOff.stackBossBars = false;
@@ -732,6 +738,30 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 				.flatMapToLong(highlight -> java.util.Arrays.stream(highlight.targets())).toArray());
 		check(traced.length == 1 && traced[0] == BlockPos.asLong(100, 100, 40), "The traced chunk should be one of those kept");
 
+		// Highest Priority traces the one high priority find past the nearer low priority ones.
+		List<Long> highest = targets(context, camera, TracerMode.HIGHEST_PRIORITY);
+		check(highest.equals(List.of(BlockPos.asLong(100, 100, 40))), "Highest Priority should trace the high priority find: " + highest);
+
+		// In a chunk with both, it's the high priority block, even though the low one is nearer.
+		server.runCommand("setblock 30 100 40 minecraft:melon");
+		context.waitFor(client -> targets(JuiceClient.TRACKER.snapshot(camera, TracerMode.HIGHEST_PRIORITY)).equals(List.of(BlockPos.asLong(30, 100, 40))), TIMEOUT_TICKS);
+		server.runCommand("setblock 30 100 40 minecraft:air");
+		context.waitFor(client -> targets(JuiceClient.TRACKER.snapshot(camera, TracerMode.HIGHEST_PRIORITY)).equals(List.of(BlockPos.asLong(100, 100, 40))), TIMEOUT_TICKS);
+
+		// Equal priorities: the nearest.
+		context.runOnClient(client -> high.priority = 1);
+		List<Long> tiedHighest = targets(context, camera, TracerMode.HIGHEST_PRIORITY);
+		check(tiedHighest.equals(List.of(BlockPos.asLong(20, 100, 40))), "Highest Priority should break ties by distance: " + tiedHighest);
+
+		// A rule with tracers off is passed over.
+		context.runOnClient(client -> {
+			high.priority = 9;
+			high.showTracer = false;
+		});
+		List<Long> noTracer = targets(context, camera, TracerMode.HIGHEST_PRIORITY);
+		check(noTracer.equals(List.of(BlockPos.asLong(20, 100, 40))), "Highest Priority should skip rules with tracers off: " + noTracer);
+		context.runOnClient(client -> high.showTracer = true);
+
 		// The renderer follows the setting, and All shows every one.
 		context.runOnClient(client -> JuiceClient.CONFIG.maxBases = 2);
 		context.waitFor(client -> JuiceClient.RENDERER.highlightCount() == 2, TIMEOUT_TICKS);
@@ -776,7 +806,8 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.waitFor(client -> client.player.position().z > 210, TIMEOUT_TICKS);
 		context.waitTicks(10);
 		Vec3 landed = context.computeOnClient(client -> client.player.position());
-		check(Math.abs(landed.x - pearlPath.hit().x) < 1.0 && Math.abs(landed.z - pearlPath.hit().z) < 1.5,
+		// Pearls are thrown with a little random spread, which adds up over 40 blocks.
+		check(Math.abs(landed.x - pearlPath.hit().x) < 1.0 && Math.abs(landed.z - pearlPath.hit().z) < 2.5,
 				"The pearl landed at " + landed + ", but the path said " + pearlPath.hit());
 
 		// A loaded crossbow: the arrow sticks where the path ends.
@@ -1287,17 +1318,24 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 	}
 
 	private static List<Long> targets(ClientGameTestContext context, Vec3 camera, TracerMode mode) {
-		return context.computeOnClient(client -> {
-			List<Long> targets = new ArrayList<>();
+		return context.computeOnClient(client -> targets(JuiceClient.TRACKER.snapshot(camera, mode)));
+	}
 
-			for (BaseTracker.ChunkHighlight highlight : JuiceClient.TRACKER.snapshot(camera, mode)) {
-				for (long target : highlight.targets()) {
-					targets.add(target);
-				}
+	private static void testItemLabelDistance() {
+		String label = com.juiceclient.JuiceClientRenderer.itemLabel("Diamond x3", 12.4);
+		check(label.equals("Diamond x3 · 12m"), "Item labels should end with the distance: " + label);
+	}
+
+	private static List<Long> targets(List<BaseTracker.ChunkHighlight> highlights) {
+		List<Long> targets = new ArrayList<>();
+
+		for (BaseTracker.ChunkHighlight highlight : highlights) {
+			for (long target : highlight.targets()) {
+				targets.add(target);
 			}
+		}
 
-			return targets;
-		});
+		return targets;
 	}
 
 	private static void takeScreenshots(ClientGameTestContext context, TestServerContext server, TestServerConnection connection) {
@@ -2428,6 +2466,168 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.waitTicks(5);
 	}
 
+	private static void testAutoDrop(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> JuiceClient.CONFIG.autoDrop && !JuiceClient.CONFIG.hasAutoDropItems()), "Auto drop should start on with nothing listed");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:iron_sword");
+		server.runCommand("item replace entity @a armor.head with minecraft:leather_helmet");
+		context.waitTicks(5);
+
+		// Nothing listed, nothing dropped.
+		server.runCommand("give @a minecraft:cobblestone 20");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 20), "Nothing should be dropped with an empty list");
+
+		// Listed items go, in the hotbar, the inventory and the offhand, and as soon as more are picked up.
+		context.runOnClient(client -> {
+			JuiceClient.CONFIG.setAutoDropItem(Items.COBBLESTONE, true);
+			JuiceClient.CONFIG.setAutoDropItem(Items.LEATHER_HELMET, true);
+		});
+		server.runCommand("give @a minecraft:dirt 5");
+		server.runCommand("item replace entity @a inventory.10 with minecraft:cobblestone 64");
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:cobblestone 3");
+		// Half a second before each stack goes.
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 20 + 64 + 3), "Nothing should be dropped straight away");
+		context.waitFor(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 0 && client.player.getOffhandItem().isEmpty(), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().countItem(Items.COBBLESTONE)) == 0,
+				"The server should have the cobblestone dropped");
+		int dropped = server.computeOnServer(minecraftServer -> minecraftServer.overworld()
+				.getEntities(net.minecraft.world.entity.EntityTypes.ITEM, new net.minecraft.world.phys.AABB(-8, 90, -8, 30, 110, 30), item -> item.getItem().is(Items.COBBLESTONE))
+				.stream().mapToInt(item -> item.getItem().getCount()).sum());
+		check(dropped == 20 + 64 + 3, "All the cobblestone should be on the ground: " + dropped);
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.DIRT) == 5 && client.player.getInventory().getItem(0).is(Items.IRON_SWORD)),
+				"Items not listed should stay");
+		check(context.computeOnClient(client -> client.player.getItemBySlot(EquipmentSlot.HEAD).is(Items.LEATHER_HELMET)), "Worn armor should stay, even when listed");
+
+		// Not while a screen is open.
+		context.runOnClient(client -> client.gui.setScreen(new net.minecraft.client.gui.screens.inventory.InventoryScreen(client.player)));
+		server.runCommand("give @a minecraft:cobblestone 4");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 4), "Nothing should be dropped while a screen is open");
+		context.runOnClient(client -> client.gui.setScreen(null));
+		context.waitFor(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 0, TIMEOUT_TICKS);
+		// The server too, so that more given next doesn't join a stack it's still about to drop.
+		context.waitTicks(5);
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().countItem(Items.COBBLESTONE)) == 0,
+				"The server should have dropped the cobblestone after the screen closed");
+
+		// Not while moving: only once standing still for half a second.
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("give @a minecraft:cobblestone 4");
+		context.waitFor(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 4, TIMEOUT_TICKS);
+
+		for (int i = 0; i < 15; i++) {
+			context.runOnClient(client -> client.player.setDeltaMovement(0.03, 0, 0));
+			context.waitTicks(1);
+		}
+
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 4), "Nothing should be dropped while moving");
+		context.waitFor(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 0, TIMEOUT_TICKS);
+		context.waitTicks(5);
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+
+		// Turned off, listed items stay.
+		context.runOnClient(client -> JuiceClient.CONFIG.autoDrop = false);
+		server.runCommand("give @a minecraft:cobblestone 4");
+		context.waitTicks(10);
+		check(context.computeOnClient(client -> client.player.getInventory().countItem(Items.COBBLESTONE) == 4), "Auto drop shouldn't act while off");
+
+		context.runOnClient(client -> {
+			JuiceClient.CONFIG.autoDrop = true;
+			JuiceClient.CONFIG.clearAutoDropItems();
+		});
+		server.runCommand("kill @e[type=minecraft:item]");
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		context.waitTicks(5);
+	}
+
+	private static int serverCount(TestServerContext server, net.minecraft.world.item.Item item) {
+		return server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().countItem(item));
+	}
+
+	private static void testAntiDrop(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> JuiceClient.CONFIG.antiDrop && !JuiceClient.CONFIG.hasAntiDropItems()), "Anti drop should start on with nothing listed");
+		server.runCommand("setblock 8 99 8 minecraft:barrier");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+		server.runCommand("kill @e[type=minecraft:item]");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:diamond_sword");
+		server.runCommand("item replace entity @a hotbar.1 with minecraft:dirt 5");
+		context.runOnClient(client -> {
+			client.player.getInventory().setSelectedSlot(0);
+			JuiceClient.CONFIG.setAntiDropItem(Items.DIAMOND_SWORD, true);
+		});
+		context.waitTicks(5);
+
+		// The drop key, outside a screen.
+		check(!context.computeOnClient(client -> client.player.drop(true)), "The drop key shouldn't throw a protected item");
+		// The drop key over the slot in the inventory.
+		context.runOnClient(client -> client.gameMode.handleContainerInput(client.player.inventoryMenu.containerId, 36, 1, net.minecraft.world.inventory.ContainerInput.THROW, client.player));
+		// Clicking outside the inventory with it on the cursor: it stays on the cursor and goes back.
+		check(context.computeOnClient(client -> {
+			int id = client.player.inventoryMenu.containerId;
+			client.gameMode.handleContainerInput(id, 36, 0, net.minecraft.world.inventory.ContainerInput.PICKUP, client.player);
+			client.gameMode.handleContainerInput(id, net.minecraft.world.inventory.AbstractContainerMenu.SLOT_CLICKED_OUTSIDE, 0, net.minecraft.world.inventory.ContainerInput.PICKUP, client.player);
+			boolean kept = client.player.inventoryMenu.getCarried().is(Items.DIAMOND_SWORD);
+			client.gameMode.handleContainerInput(id, 36, 0, net.minecraft.world.inventory.ContainerInput.PICKUP, client.player);
+			return kept;
+		}), "A protected item should stay on the cursor when clicked outside");
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.getInventory().getItem(0).is(Items.DIAMOND_SWORD)), "The protected sword should still be in the hotbar");
+		check(serverCount(server, Items.DIAMOND_SWORD) == 1, "The server should still have the sword");
+
+		// Moving it around the inventory is fine.
+		context.runOnClient(client -> client.gameMode.handleContainerInput(client.player.inventoryMenu.containerId, 36, 0, net.minecraft.world.inventory.ContainerInput.QUICK_MOVE, client.player));
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.getInventory().getItem(0).isEmpty() && client.player.getInventory().countItem(Items.DIAMOND_SWORD) == 1),
+				"A protected item should still move around the inventory");
+
+		// Items not listed still drop.
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(1));
+		context.waitTicks(2);
+		context.runOnClient(client -> client.player.drop(true));
+		context.waitTicks(5);
+		check(serverCount(server, Items.DIRT) == 0, "Dirt isn't protected and should drop");
+
+		// Anti drop wins over auto drop.
+		context.runOnClient(client -> {
+			JuiceClient.CONFIG.setAntiDropItem(Items.COBBLESTONE, true);
+			JuiceClient.CONFIG.setAutoDropItem(Items.COBBLESTONE, true);
+		});
+		server.runCommand("give @a minecraft:cobblestone 8");
+		context.waitTicks(AutoDrop.DROP_DELAY_TICKS * 2 + 5);
+		check(serverCount(server, Items.COBBLESTONE) == 8, "Auto drop shouldn't throw protected items");
+
+		// Turned off, it drops.
+		context.runOnClient(client -> {
+			JuiceClient.CONFIG.antiDrop = false;
+			JuiceClient.CONFIG.clearAutoDropItems();
+		});
+		server.runCommand("item replace entity @a hotbar.1 with minecraft:diamond_sword");
+		context.waitTicks(5);
+		context.runOnClient(client -> client.player.drop(true));
+		context.waitTicks(5);
+		check(serverCount(server, Items.DIAMOND_SWORD) == 1, "Anti drop shouldn't act while off");
+
+		context.runOnClient(client -> {
+			JuiceClient.CONFIG.antiDrop = true;
+			JuiceClient.CONFIG.clearAntiDropItems();
+		});
+		server.runCommand("kill @e[type=minecraft:item]");
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("setblock 8 99 8 minecraft:air");
+		context.waitTicks(5);
+	}
+
 	private static void testQuickUse(ClientGameTestContext context, TestServerContext server) {
 		check(context.computeOnClient(client -> JuiceClient.CONFIG.quickUseAction == QuickUseAction.ENDER_PEARL), "Quick use should start on ender pearls");
 		server.runCommand("setblock 8 99 8 minecraft:barrier");
@@ -2456,6 +2656,16 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.getInput().pressKey(InputConstants.Type.MOUSE.getOrCreate(GLFW.GLFW_MOUSE_BUTTON_4));
 		context.waitTicks(5);
 		check(context.computeOnClient(client -> client.player.getInventory().getItem(2).getCount() == 15), "A pearl shouldn't be thrown while cooling down");
+
+		// Some servers put the pearl back in hand right after it's thrown: the sword comes back again.
+		context.runOnClient(client -> {
+			HeldUse.use(client, 2);
+			client.player.getInventory().setSelectedSlot(2);
+		});
+		context.waitTicks(3);
+		check(context.computeOnClient(client -> client.player.getInventory().getSelectedSlot() == 0), "The sword should come back when the server puts the pearl back");
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().getSelectedSlot()) == 0, "The server should end up on the sword");
+		context.waitTicks(25);
 
 		// A potion is drunk through, then the sword is back.
 		context.runOnClient(client -> JuiceClient.CONFIG.quickUseAction = QuickUseAction.POTION);
@@ -2928,6 +3138,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			imported.playerColor = "AABBCCDD";
 			imported.tracerMode = TracerMode.NEAREST_CHUNK;
 			imported.freeLookSpeed = 42F;
+			imported.labelSize = 120;
 			imported.showTracers = false;
 			imported.showChunkHighlights = false;
 			imported.save();
@@ -2935,6 +3146,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			check(!reloaded.enabled && reloaded.tracerMode == TracerMode.NEAREST_CHUNK && reloaded.lineWidth == 5.0F, "Settings lost on reload");
 			check(!reloaded.showTracers && !reloaded.showChunkHighlights, "Visibility toggles lost on reload");
 			check(reloaded.freeLookSpeed == 42F, "Free look speed lost on reload");
+			check(reloaded.labelSize == 120, "Label size lost on reload: " + reloaded.labelSize);
 			check(reloaded.playerArgb() == 0xAABBCCDD, "Color lost on reload");
 			check(!reloaded.isExcluded(Blocks.TORCH) && !reloaded.isExcluded(Blocks.LAVA), "Emptied block list lost on reload");
 
@@ -2973,6 +3185,10 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			reloaded.autoTotemDelay = 40;
 			reloaded.autoTotemHealth = 7;
 			reloaded.autoArmor = false;
+			reloaded.autoDrop = false;
+			reloaded.setAutoDropItem(Items.COBBLESTONE, true);
+			reloaded.antiDrop = false;
+			reloaded.setAntiDropItem(Items.DIAMOND_SWORD, true);
 			reloaded.autoWeapon = false;
 			reloaded.autoWeaponReturn = 0;
 			reloaded.autoEatResupply = false;
@@ -3019,7 +3235,8 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			check(!withRules.smartTool && withRules.smartToolDelay == 20, "Smart tool settings lost on reload");
 			check(!withRules.autoEat && withRules.autoEatHunger == 6 && withRules.autoEatHealth == 30, "Auto eat settings lost on reload");
 			check(withRules.quickUseAction == QuickUseAction.POTION, "Quick use action lost on reload");
-			check(!withRules.autoTotem && withRules.autoTotemDelay == 40 && withRules.autoTotemHealth == 7 && !withRules.autoArmor && !withRules.autoWeapon && withRules.autoWeaponReturn == 0 && !withRules.autoEatResupply, "Auto totem settings lost on reload");
+			check(!withRules.autoTotem && withRules.autoTotemDelay == 40 && withRules.autoTotemHealth == 7 && !withRules.autoArmor && !withRules.autoDrop && withRules.isAutoDropListed(Items.COBBLESTONE) && !withRules.isAutoDropListed(Items.DIRT)
+					&& !withRules.antiDrop && withRules.isAntiDropListed(Items.DIAMOND_SWORD) && !withRules.isAntiDropListed(Items.DIRT) && !withRules.autoWeapon && withRules.autoWeaponReturn == 0 && !withRules.autoEatResupply, "Auto totem settings lost on reload");
 			check(!withRules.nameTags && withRules.nameTagRange == 48 && withRules.isNameTagged(net.minecraft.world.entity.EntityTypes.ACACIA_BOAT)
 					&& withRules.nameTagBlocks().contains(Blocks.CHEST) && !withRules.nameTagBlocks().contains(Blocks.STONE), "Name tag settings lost on reload");
 			check(!withRules.sortButtons && withRules.sortMode == SortMode.VALUE && withRules.sortDelay == 7
@@ -3177,11 +3394,13 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		config.takeAll = false;
 		config.autoTotem = false;
 		config.autoArmor = false;
+		config.autoDrop = false;
+		config.antiDrop = false;
 		config.autoWeapon = false;
 		config.sortButtons = false;
 		config.trajectories = false;
 		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll && config.autoArmor && config.autoWeapon && config.sortButtons
-				&& config.trajectories, "Tools should all turn on");
+				&& config.trajectories && config.autoDrop && config.antiDrop, "Tools should all turn on");
 		SectionToggle.forgetAll();
 	}
 

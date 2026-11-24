@@ -127,6 +127,8 @@ public final class ModuleSplash {
 		addIf(tools, config.autoEat, Component.translatable("options.juiceclient.autoEat"));
 		addIf(tools, config.autoTotem, Component.translatable("options.juiceclient.autoTotem"));
 		addIf(tools, config.autoArmor, Component.translatable("options.juiceclient.autoArmor"));
+		addIf(tools, config.autoDrop && config.hasAutoDropItems(), Component.translatable("options.juiceclient.autoDrop"));
+		addIf(tools, config.antiDrop && config.hasAntiDropItems(), Component.translatable("options.juiceclient.antiDrop"));
 		addIf(tools, config.autoWeapon, Component.translatable("options.juiceclient.autoWeapon"));
 		addIf(tools, config.sortButtons, Component.translatable("options.juiceclient.sort.button"));
 		addIf(tools, config.trajectories, Component.translatable("options.juiceclient.trajectories"));

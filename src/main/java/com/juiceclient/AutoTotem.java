@@ -232,7 +232,8 @@ public final class AutoTotem {
 	}
 
 	/** Whether the player is moving across the ground or through the air, rather than standing still. */
-	private static boolean isMoving(LocalPlayer player) {
+	/** Whether the player is walking or being pushed sideways, rather than standing still. */
+	static boolean isMoving(LocalPlayer player) {
 		return player.getDeltaMovement().horizontalDistanceSqr() > 1.0E-4;
 	}
 

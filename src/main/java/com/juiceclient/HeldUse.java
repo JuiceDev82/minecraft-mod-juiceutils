@@ -9,9 +9,16 @@ import net.minecraft.world.InteractionHand;
  * that take time, like food and potions, have the use key held for them until they're done.
  */
 public final class HeldUse {
+	/** How long after going back the slot is watched, in case the server puts the used item's slot back. */
+	private static final int WATCH_TICKS = 20;
+	/** How many times the slot is gone back to before leaving it to the server. */
+	private static final int MAX_RETRIES = 3;
 	private static boolean active;
 	private static int heldSlot;
 	private static int previousSlot;
+	/** Ticks left watching the slot gone back to, or 0. */
+	private static int watchTicks;
+	private static int retries;
 
 	private HeldUse() {
 	}
@@ -32,6 +39,9 @@ public final class HeldUse {
 			return false;
 		}
 
+		// A new press from the slot gone back to ends the watch on the last one.
+		watchTicks = 0;
+
 		int previous = player.getInventory().getSelectedSlot();
 		player.getInventory().setSelectedSlot(slot);
 		// This tells the server of the slot before using it.
@@ -45,12 +55,64 @@ public final class HeldUse {
 		}
 
 		player.getInventory().setSelectedSlot(previous);
+		watch(slot, previous);
 		return used;
+	}
+
+	private static void watch(int usedSlot, int previous) {
+		if (usedSlot != previous) {
+			heldSlot = usedSlot;
+			previousSlot = previous;
+			watchTicks = WATCH_TICKS;
+			retries = 0;
+		}
+	}
+
+	/**
+	 * Some servers put the slot of an item just used back in hand, such as after an ender pearl is thrown. If that
+	 * happens soon after going back, go back again.
+	 */
+	private static void tickWatch(Minecraft client) {
+		if (watchTicks <= 0) {
+			return;
+		}
+
+		watchTicks--;
+		LocalPlayer player = client.player;
+
+		if (player == null || client.gui.screen() != null) {
+			watchTicks = 0;
+			return;
+		}
+
+		int selected = player.getInventory().getSelectedSlot();
+
+		if (selected == previousSlot) {
+			return;
+		}
+
+		// The player picked some other slot themselves.
+		if (selected != heldSlot) {
+			watchTicks = 0;
+			return;
+		}
+
+		if (retries >= MAX_RETRIES) {
+			JuiceClient.LOGGER.info("The server kept putting hotbar slot {} back after a quick use; leaving it", heldSlot + 1);
+			watchTicks = 0;
+			return;
+		}
+
+		retries++;
+		JuiceClient.LOGGER.info("The server put hotbar slot {} back after a quick use; going back to slot {} again", heldSlot + 1, previousSlot + 1);
+		player.getInventory().setSelectedSlot(previousSlot);
+		watchTicks = WATCH_TICKS;
 	}
 
 	/** Called each client tick. Returns whether an item finished being used, or was interrupted, this tick. */
 	public static boolean tick(Minecraft client) {
 		if (!active) {
+			tickWatch(client);
 			return false;
 		}
 
@@ -79,6 +141,7 @@ public final class HeldUse {
 
 		if (player.getInventory().getSelectedSlot() == heldSlot) {
 			player.getInventory().setSelectedSlot(previousSlot);
+			watch(heldSlot, previousSlot);
 		}
 	}
 }

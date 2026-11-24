@@ -13,7 +13,8 @@ Because the mod is client-only, it works on any server. The server doesn't need 
 
 - **Block and Entity ESP:** highlights chunks and blocks that match your rules, such as light sources or player-made blocks, with tracer
   lines and labels pointing to them. Each block is highlighted along its own shape, so a torch shows just the torch,
-  and entities that match a rule are outlined along their shape. Rules are listed highest priority first. Close-up
+  and entities that match a rule are outlined along their shape. Rules are listed highest priority first, and the
+  Highest Priority tracer target draws one tracer to the closest find of your highest priority rule. Close-up
   highlights fade so they don't cover what you're looking at, but stay when the block is behind a wall.
 - **Mobs and players:** outlines hostile mobs and other players along their shape. Warns you when a hostile mob is
   close; piglins and zombified piglins only count when they're aggressive. A message and a ding tell you when a player
@@ -39,6 +40,9 @@ Because the mod is client-only, it works on any server. The server doesn't need 
   undoes either swap, it's done again.
 - **Auto Armor:** wears the best armor in your inventory, counting protection enchantments, one piece every half second.
   While an elytra is on, no chestplate goes on. Anything with Curse of Binding is never put on.
+- **Auto Drop:** drops the items you choose, such as junk picked up while mining, once you've stood still for half a
+  second with them in your inventory. One stack goes every half second. Choose them under Auto Drop Items.
+- **Anti Drop** stops the items you choose from being thrown out by mistake, with the drop key or by clicking outside your inventory. They can still go in chests and other containers, and blocks can still be placed. Choose them under Anti Drop Items.
 - **Auto Weapon:** when you hit a mob or player, switches to the best sword in your hotbar, or the best axe if you have
   no sword. Sharpness counts, and Smite or Bane of Arthropods against the mobs they work on. Switches back after a time
   you choose without hitting anything.

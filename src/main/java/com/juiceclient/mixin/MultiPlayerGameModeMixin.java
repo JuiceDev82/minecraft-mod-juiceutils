@@ -14,7 +14,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ContainerInput;
 
+import com.juiceclient.AntiDrop;
 import com.juiceclient.AutoWeapon;
 import com.juiceclient.SmartTool;
 
@@ -41,6 +43,14 @@ public abstract class MultiPlayerGameModeMixin {
 		if (player instanceof LocalPlayer localPlayer) {
 			SmartTool.attack(localPlayer, target);
 			AutoWeapon.attack(localPlayer, target);
+		}
+	}
+
+	// Before the click is predicted and sent, so a protected item stays where it was.
+	@Inject(method = "handleContainerInput", at = @At("HEAD"), cancellable = true)
+	private void juiceclient$antiDrop(int containerId, int slotNum, int buttonNum, ContainerInput input, Player player, CallbackInfo ci) {
+		if (player.containerMenu.containerId == containerId && AntiDrop.blocksClick(player.containerMenu, slotNum, input, player)) {
+			ci.cancel();
 		}
 	}
 
