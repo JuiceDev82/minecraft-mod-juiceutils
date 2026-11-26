@@ -1054,6 +1054,29 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.waitFor(client -> client.gui.screen() instanceof JuiceClientConfigScreen, TIMEOUT_TICKS);
 		context.waitTicks(5);
 		context.takeScreenshot("juiceclient_settings_returned");
+
+		// Searching the settings: a setting near the bottom comes up with its section's title, a section's title brings
+		// the whole section, and no match says so.
+		int allRows = context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows());
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter("anti drop"));
+		context.waitTicks(2);
+		context.takeScreenshot("juiceclient_settings_search");
+		int antiDropRows = context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows());
+		check(antiDropRows == 3, "Anti Drop should show with its section and subsection titles: " + antiDropRows);
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter("trajectory color"));
+		context.waitTicks(2);
+		int colorRows = context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows());
+		check(colorRows == 4, "A color field should show with its label: " + colorRows);
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter("free look"));
+		context.waitTicks(2);
+		int freeLookRows = context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows());
+		check(freeLookRows == 2, "A matching section should show whole: " + freeLookRows);
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter("zzzz"));
+		context.waitTicks(2);
+		check(context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows()) == 1, "No match should show one message row");
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter(""));
+		context.waitTicks(2);
+		check(context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows()) == allRows, "Clearing the search should show everything again");
 		context.setScreen(() -> null);
 
 		// The light sources rule leads to the excluded blocks, and can't be deleted.
@@ -1430,7 +1453,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		holdMining(context, new BlockPos(9, 100, 9));
 		check(context.computeOnClient(client -> client.player.getInventory().getSelectedSlot() == 4), "Dirt next should select the shovel");
 		context.runOnClient(client -> client.gameMode.stopDestroyBlock());
-		context.waitTicks(5);
+		context.waitTicks(SmartTool.RETURN_DELAY_TICKS + 5);
 		check(context.computeOnClient(client -> client.player.getInventory().getSelectedSlot() == 0), "Letting go should go back to the first slot");
 
 		// The stone shovel in hand from here.
@@ -1551,6 +1574,9 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.waitTicks(5);
 		check(context.computeOnClient(client -> client.player.getInventory().getSelectedSlot() == 0), "The sword should be back in hand");
 		check(context.computeOnClient(client -> client.gui.screen() == null), "Eating shouldn't use the crafting table");
+		// One steak, and the use key let go of, so the player isn't left eating and slowed down.
+		check(context.computeOnClient(client -> client.player.getInventory().getItem(5).getCount() == 7), "Only one steak should be eaten");
+		check(context.computeOnClient(client -> !client.options.keyUse.isDown() && !client.player.isUsingItem()), "The use key should be let go of after eating");
 		int food = server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getFoodData().getFoodLevel());
 		check(food == 18, "One steak should have been eaten: food is " + food);
 		check(context.computeOnClient(client -> client.player.getInventory().getItem(5).getCount() == 7
@@ -2723,7 +2749,11 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			client.gameMode.stopDestroyBlock();
 			return client.player.getInventory().getSelectedSlot();
 		});
+		// The tool stays in hand for a moment after letting go.
 		context.waitTicks(5);
+		int during = context.computeOnClient(client -> client.player.getInventory().getSelectedSlot());
+		check(during == slot, "The tool should stay in hand just after letting go, on slot " + slot + ", not " + during);
+		context.waitTicks(SmartTool.RETURN_DELAY_TICKS);
 		int after = context.computeOnClient(client -> client.player.getInventory().getSelectedSlot());
 		int serverSlot = server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().getSelectedSlot());
 		check(after == before, "Letting go should go back to slot " + before + ", not " + after);

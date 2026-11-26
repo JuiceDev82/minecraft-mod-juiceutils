@@ -120,7 +120,8 @@ public final class MobWarning {
 		if (newMob && now - this.lastDing >= DING_COOLDOWN_MILLIS) {
 			this.lastDing = now;
 			this.dings++;
-			client.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_BELL.value(), 1.5F, 1.0F));
+			// A deep, slowed down Warden heartbeat, so a mob coming close sounds like a threat rather than a notification.
+			client.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.WARDEN_HEARTBEAT, 0.6F, 1.0F));
 		}
 	}
 

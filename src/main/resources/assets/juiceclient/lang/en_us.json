@@ -78,6 +78,8 @@
 	"options.juiceclient.mob.highlighted": "Highlighted",
 	"options.juiceclient.mob.notHighlighted": "Not Highlighted",
 	"options.juiceclient.search": "Search...",
+	"options.juiceclient.searchSettings": "Search settings...",
+	"options.juiceclient.searchSettings.none": "No settings match",
 	"options.juiceclient.fillOpacity": "Chunk Fill Opacity",
 	"options.juiceclient.percent": "%s%%",
 	"options.juiceclient.hearts": "%s ❤",

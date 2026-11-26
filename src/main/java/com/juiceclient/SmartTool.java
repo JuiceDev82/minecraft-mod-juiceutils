@@ -167,6 +167,8 @@ public final class SmartTool {
 	/** Boats take a few clicks to break, so the axe stays in hand for a second after each hit. */
 	private static final int BOAT_HOLD_TICKS = 20;
 	private static int lastBoatHit = Integer.MIN_VALUE / 2;
+	/** How long after mining stops the tool stays in hand, so moving on to the next block doesn't swap back and forth. */
+	public static final int RETURN_DELAY_TICKS = 10;
 
 	/** The slot to switch to for this block, or -1 to keep the current one. */
 	private static int slotFor(LocalPlayer player, BlockState state) {
@@ -272,8 +274,8 @@ public final class SmartTool {
 			if (player == null || player.getInventory().getSelectedSlot() != toolSlot) {
 				// The player picked another slot themselves, which is kept.
 				returnSlot = -1;
-			} else if (!client.options.keyAttack.isDown() && lastMined < ticks && ticks - lastBoatHit > BOAT_HOLD_TICKS) {
-				// Released: back to what was in hand. The server is told as the game mode ticks next.
+			} else if (!client.options.keyAttack.isDown() && ticks - lastMined > RETURN_DELAY_TICKS && ticks - lastBoatHit > BOAT_HOLD_TICKS) {
+				// Released for half a second: back to what was in hand. The server is told as the game mode ticks next.
 				player.getInventory().setSelectedSlot(returnSlot);
 				returnSlot = -1;
 			}

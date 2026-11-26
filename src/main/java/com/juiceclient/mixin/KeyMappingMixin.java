@@ -21,6 +21,7 @@ public class KeyMappingMixin {
 		}
 
 		Minecraft client = Minecraft.getInstance();
-		return client != null && client.options != null && (Object) this == client.options.keyUse;
+		// Only until that item is done, so that holding the key doesn't start on another.
+		return client != null && client.options != null && (Object) this == client.options.keyUse && HeldUse.holdsUseKey(client.player);
 	}
 }

@@ -13,6 +13,8 @@ public final class HeldUse {
 	private static final int WATCH_TICKS = 20;
 	/** How many times the slot is gone back to before leaving it to the server. */
 	private static final int MAX_RETRIES = 3;
+	/** How long past an item's use time it's held for, in case the server is slow to say it's done, before letting go. */
+	private static final int GRACE_TICKS = 10;
 	private static boolean active;
 	private static int heldSlot;
 	private static int previousSlot;
@@ -23,9 +25,22 @@ public final class HeldUse {
 	private HeldUse() {
 	}
 
-	/** Whether an item is being used, for the mixin that holds the use key down meanwhile. */
+	/** Whether an item is being used for the player. */
 	public static boolean isActive() {
 		return active;
+	}
+
+	/**
+	 * Whether the use key should read as held: only while the one item is still being used. Once it's done the key is
+	 * let go, so that the next piece of food isn't started on and the player isn't left slowed down, eating.
+	 */
+	public static boolean holdsUseKey(LocalPlayer player) {
+		return active && player != null && player.isUsingItem() && !overdue(player);
+	}
+
+	/** Whether the item has been used for longer than it takes, as when the server never says it's done. */
+	private static boolean overdue(LocalPlayer player) {
+		return player.getTicksUsingItem() > player.getUseItem().getUseDuration(player) + GRACE_TICKS;
 	}
 
 	/**
@@ -118,8 +133,9 @@ public final class HeldUse {
 
 		LocalPlayer player = client.player;
 
-		// Done, or interrupted: by a screen opening or the player picking another slot.
-		if (player == null || client.gui.screen() != null || player.getInventory().getSelectedSlot() != heldSlot || !player.isUsingItem()) {
+		// Done, or interrupted: by a screen opening or the player picking another slot. Or taking too long.
+		if (player == null || client.gui.screen() != null || player.getInventory().getSelectedSlot() != heldSlot || !player.isUsingItem()
+				|| overdue(player)) {
 			stop(client);
 			return true;
 		}

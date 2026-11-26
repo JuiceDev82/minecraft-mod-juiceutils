@@ -1,5 +1,11 @@
 package com.juiceclient;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import org.jspecify.annotations.Nullable;
@@ -10,11 +16,15 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.OptionInstance;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.ContainerObjectSelectionList;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.OptionsList;
+import net.minecraft.client.gui.components.StringWidget;
+import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.options.OptionsSubScreen;
 import net.minecraft.network.chat.Component;
@@ -31,9 +41,146 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 	private static final int MAX_FREE_LOOK_SPEED = 100;
 	private static final int VALID_COLOR = 0xFFE0E0E0;
 	private static final int INVALID_COLOR = 0xFFFF5555;
+	private static final Component SEARCH_HINT = Component.translatable("options.juiceclient.searchSettings").withStyle(EditBox.SEARCH_HINT_STYLE);
+	private static final int SEARCH_BOX_HEIGHT = 15;
+
+	private EditBox search;
+	/** Kept across resizes, which build the screen again. */
+	private String filter = "";
+	/** Every row as built, in order, for searching through. */
+	private final List<ContainerObjectSelectionList.Entry<?>> allEntries = new ArrayList<>();
+	private final Set<ContainerObjectSelectionList.Entry<?>> sectionHeaders = Collections.newSetFromMap(new IdentityHashMap<>());
+	private final Set<ContainerObjectSelectionList.Entry<?>> subsectionHeaders = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	public JuiceClientConfigScreen(Screen lastScreen) {
 		super(lastScreen, Minecraft.getInstance().options, Component.translatable("options.juiceclient.title"));
+	}
+
+	@Override
+	protected void addTitle() {
+		LinearLayout header = this.layout.addToHeader(LinearLayout.vertical().spacing(4));
+		header.defaultCellSetting().alignHorizontallyCenter();
+		header.addChild(new StringWidget(this.title, this.font));
+		this.search = header.addChild(new EditBox(this.font, 0, 0, 200, SEARCH_BOX_HEIGHT, Component.empty()));
+		this.search.setHint(SEARCH_HINT);
+		this.search.setValue(this.filter);
+		this.layout.setHeaderHeight(12 + 9 + SEARCH_BOX_HEIGHT);
+	}
+
+	@Override
+	protected void addContents() {
+		this.allEntries.clear();
+		this.sectionHeaders.clear();
+		this.subsectionHeaders.clear();
+		super.addContents();
+		this.allEntries.addAll(this.list.children());
+		this.search.setResponder(this::applyFilter);
+		this.applyFilter(this.filter);
+	}
+
+	/**
+	 * Shows the settings whose names hold the filter. A section or subsection whose title matches shows whole, and the
+	 * titles of the sections and subsections the matching settings are in stay above them.
+	 */
+	public void applyFilter(String value) {
+		boolean changed = !this.filter.equals(value);
+		this.filter = value;
+		String query = value.trim().toLowerCase(Locale.ROOT);
+
+		if (query.isEmpty()) {
+			this.replaceEntries(this.allEntries);
+		} else {
+			List<ContainerObjectSelectionList.Entry<?>> shown = new ArrayList<>();
+			ContainerObjectSelectionList.Entry<?> section = null;
+			ContainerObjectSelectionList.Entry<?> subsection = null;
+			boolean sectionMatches = false;
+			boolean subsectionMatches = false;
+			boolean sectionShown = false;
+			boolean subsectionShown = false;
+			// A color field's label is a header of its own, which goes with the row below it.
+			ContainerObjectSelectionList.Entry<?> label = null;
+
+			for (ContainerObjectSelectionList.Entry<?> entry : this.allEntries) {
+				if (this.sectionHeaders.contains(entry)) {
+					section = entry;
+					subsection = null;
+					sectionMatches = matches(entry, query);
+					subsectionMatches = false;
+					sectionShown = false;
+					subsectionShown = false;
+					label = null;
+					continue;
+				}
+
+				if (this.subsectionHeaders.contains(entry)) {
+					subsection = entry;
+					subsectionMatches = matches(entry, query);
+					subsectionShown = false;
+					label = null;
+					continue;
+				}
+
+				if (!entry.children().isEmpty() && entry.children().stream().allMatch(child -> child instanceof StringWidget)) {
+					label = entry;
+					continue;
+				}
+
+				if (sectionMatches || subsectionMatches || matches(entry, query) || (label != null && matches(label, query))) {
+					if (section != null && !sectionShown) {
+						shown.add(section);
+						sectionShown = true;
+					}
+
+					if (subsection != null && !subsectionShown) {
+						shown.add(subsection);
+						subsectionShown = true;
+					}
+
+					if (label != null) {
+						shown.add(label);
+					}
+
+					shown.add(entry);
+				}
+
+				label = null;
+			}
+
+			this.replaceEntries(shown);
+
+			if (shown.isEmpty()) {
+				this.list.addHeader(Component.translatable("options.juiceclient.searchSettings.none").withStyle(ChatFormatting.GRAY));
+			}
+		}
+
+		if (changed) {
+			this.list.setScrollAmount(0.0);
+		}
+	}
+
+	// The list's own entry type is protected, so the rows are handed back without naming it.
+	@SuppressWarnings({"unchecked", "rawtypes"})
+	private void replaceEntries(List<ContainerObjectSelectionList.Entry<?>> entries) {
+		((net.minecraft.client.gui.components.AbstractSelectionList) this.list).replaceEntries(entries);
+	}
+
+	/** How many rows are showing, for tests. */
+	public int shownRows() {
+		return this.list.children().size();
+	}
+
+	/** Whether any text in the row, such as a button's name or a header, holds the query. */
+	private static boolean matches(ContainerObjectSelectionList.Entry<?> entry, String query) {
+		List<Object> parts = new ArrayList<>(entry.narratables());
+		parts.addAll(entry.children());
+
+		for (Object part : parts) {
+			if (part instanceof AbstractWidget widget && widget.getMessage().getString().toLowerCase(Locale.ROOT).contains(query)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	@Override
@@ -378,6 +525,7 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 	/** A group within a section, quieter than a section's title. */
 	private void addSubsection(String key) {
 		this.list.addHeader(Component.translatable(key).withStyle(ChatFormatting.GRAY, ChatFormatting.UNDERLINE));
+		this.subsectionHeaders.add(this.list.children().getLast());
 	}
 
 	/** A section's title, with the key that toggles it beside it, if it has one, so shortcuts can be seen at a glance. */
@@ -390,6 +538,7 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 		}
 
 		this.list.addHeader(header);
+		this.sectionHeaders.add(this.list.children().getLast());
 	}
 
 	/** The key that toggles a section, from the section's title key, or null for a section with none. */
