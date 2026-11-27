@@ -97,17 +97,67 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 	private static final BlockPos BEHIND_TORCH = new BlockPos(-24, 100, -8);
 	private static final BlockPos MARKER = new BlockPos(24, 100, 72);
 
+	/**
+	 * Test groups to run, from {@code gradlew runClientGameTest -Ptests=autoEat,modMenu}: each word picks the groups
+	 * whose names hold it, ignoring case. Empty runs everything. Some groups lean on earlier ones, such as the
+	 * screenshots on the scene built before them, so pick those together.
+	 */
+	private static final List<String> FILTER = java.util.Arrays.stream(System.getProperty("juiceclient.tests", "").split(","))
+			.map(word -> word.trim().toLowerCase(java.util.Locale.ROOT)).filter(word -> !word.isEmpty()).toList();
+	private static final Set<String> USED_FILTER_WORDS = new java.util.HashSet<>();
+	private static final List<String> WORLD_TESTS = List.of("AutoClutch", "BlockUpdates", "ChunkReload", "ExcludedBlocksScreen", "BaseRules", "RuleLabels", "HostileMobs", "EntityRules", "ModuleSplash", "XRay", "MobWarning", "PiglinWarning", "DroppedItems", "SmartTool", "AutoEat", "QuickUse", "AutoTotem", "AutoArmor", "AutoDrop", "AntiDrop", "AutoWeapon", "SettingsTransfer", "FoodResupply", "NameTags", "TakeAll", "Sort", "Trajectory", "BossBarStack", "ArmorStatus", "CustomRule", "BasePriority", "RuleScreens", "surveyStructures", "buildScene", "TracerModes", "ItemLabelDistance", "takeScreenshots", "takeBusynessScreenshot", "ToggleKey", "FreeLook");
+
+	private static boolean selected(String name) {
+		if (FILTER.isEmpty()) {
+			return true;
+		}
+
+		boolean selected = false;
+
+		for (String word : FILTER) {
+			if (name.toLowerCase(java.util.Locale.ROOT).contains(word)) {
+				USED_FILTER_WORDS.add(word);
+				selected = true;
+			}
+		}
+
+		return selected;
+	}
+
+	private static boolean anySelected(List<String> names) {
+		return FILTER.isEmpty() || names.stream().anyMatch(name -> FILTER.stream().anyMatch(word -> name.toLowerCase(java.util.Locale.ROOT).contains(word)));
+	}
+
+	private static void run(String name, Runnable test) {
+		if (selected(name)) {
+			JuiceClient.LOGGER.info("Running test group {}", name);
+			test.run();
+		}
+	}
+
+	/** A word that picked nothing is most likely a typo, which shouldn't pass as a run with nothing failing. */
+	private static void checkFilterUsed() {
+		List<String> unused = FILTER.stream().filter(word -> !USED_FILTER_WORDS.contains(word)).toList();
+		check(unused.isEmpty(), "No test group matches " + unused);
+	}
+
 	@Override
 	public void runTest(ClientGameTestContext context) {
-		logLightEmittingBlocks();
-		testColorValidation();
-		testPlayerAlerts();
-		testSectionToggles(context);
-		testBlockHighlightFade();
-		testBusynessGradient();
-		testConfigStorage();
-		testModMenu(context);
-		testPutAllItemsFromTitleScreen(context);
+		run("logLightEmittingBlocks", () -> logLightEmittingBlocks());
+		run("ColorValidation", () -> testColorValidation());
+		run("PlayerAlerts", () -> testPlayerAlerts());
+		run("SectionToggles", () -> testSectionToggles(context));
+		run("BlockHighlightFade", () -> testBlockHighlightFade());
+		run("BusynessGradient", () -> testBusynessGradient());
+		run("ConfigStorage", () -> testConfigStorage());
+		run("ModMenu", () -> testModMenu(context));
+		run("PutAllItemsFromTitleScreen", () -> testPutAllItemsFromTitleScreen(context));
+
+		// A word that matched nothing yet is for a test in the world, even one missing from the list.
+		if (!anySelected(WORLD_TESTS) && USED_FILTER_WORDS.containsAll(FILTER)) {
+			checkFilterUsed();
+			return;
+		}
 
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			TestServerContext server = singleplayer.getServer();
@@ -123,50 +173,52 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			context.waitFor(client -> JuiceClient.SPLASH.isShowing(), TIMEOUT_TICKS);
 			context.takeScreenshot("juiceclient_module_splash_join");
 
-			testBlockUpdates(context, server);
-			testChunkReload(context, server, connection);
-			testExcludedBlocksScreen(context, server);
-			testBaseRules(context, server);
-			testRuleLabels(context, server, connection);
-			testHostileMobs(context, server, connection);
-			testEntityRules(context, server, connection);
-			testModuleSplash(context);
-			testXRay(context, server, connection);
-			testMobWarning(context, server);
-			testPiglinWarning(context, server);
-			testDroppedItems(context, server);
-			testSmartTool(context, server);
-			testAutoEat(context, server);
-			testQuickUse(context, server);
-			testAutoTotem(context, server);
-			testAutoArmor(context, server);
-			testAutoDrop(context, server);
-			testAntiDrop(context, server);
-			testAutoWeapon(context, server);
-			testSettingsTransfer(context);
-			testFoodResupply(context, server);
-			testNameTags(context, server);
-			testTakeAll(context, server);
-			testSort(context, server);
-			testTrajectory(context, server);
-			testBossBarStack(context, server);
-			testArmorStatus(context, server);
-			testCustomRule(context, server);
-			testBasePriority(context, server);
-			testRuleScreens(context);
-			surveyStructures(context, server, connection);
-			buildScene(context, server);
-			testTracerModes(context, server);
-			testItemLabelDistance();
-			takeScreenshots(context, server, connection);
-			takeBusynessScreenshot(context, server, connection);
-			testToggleKey(context);
-			testFreeLook(context, server, connection);
+			run("BlockUpdates", () -> testBlockUpdates(context, server));
+			run("ChunkReload", () -> testChunkReload(context, server, connection));
+			run("ExcludedBlocksScreen", () -> testExcludedBlocksScreen(context, server));
+			run("BaseRules", () -> testBaseRules(context, server));
+			run("RuleLabels", () -> testRuleLabels(context, server, connection));
+			run("HostileMobs", () -> testHostileMobs(context, server, connection));
+			run("EntityRules", () -> testEntityRules(context, server, connection));
+			run("ModuleSplash", () -> testModuleSplash(context));
+			run("XRay", () -> testXRay(context, server, connection));
+			run("MobWarning", () -> testMobWarning(context, server));
+			run("PiglinWarning", () -> testPiglinWarning(context, server));
+			run("DroppedItems", () -> testDroppedItems(context, server));
+			run("SmartTool", () -> testSmartTool(context, server));
+			run("AutoEat", () -> testAutoEat(context, server));
+			run("QuickUse", () -> testQuickUse(context, server));
+			run("AutoTotem", () -> testAutoTotem(context, server));
+			run("AutoArmor", () -> testAutoArmor(context, server));
+			run("AutoDrop", () -> testAutoDrop(context, server));
+			run("AntiDrop", () -> testAntiDrop(context, server));
+			run("AutoWeapon", () -> testAutoWeapon(context, server));
+			run("SettingsTransfer", () -> testSettingsTransfer(context));
+			run("FoodResupply", () -> testFoodResupply(context, server));
+			run("NameTags", () -> testNameTags(context, server));
+			run("TakeAll", () -> testTakeAll(context, server));
+			run("Sort", () -> testSort(context, server));
+			run("Trajectory", () -> testTrajectory(context, server));
+			run("AutoClutch", () -> testAutoClutch(context, server));
+			run("BossBarStack", () -> testBossBarStack(context, server));
+			run("ArmorStatus", () -> testArmorStatus(context, server));
+			run("CustomRule", () -> testCustomRule(context, server));
+			run("BasePriority", () -> testBasePriority(context, server));
+			run("RuleScreens", () -> testRuleScreens(context));
+			run("surveyStructures", () -> surveyStructures(context, server, connection));
+			run("buildScene", () -> buildScene(context, server));
+			run("TracerModes", () -> testTracerModes(context, server));
+			run("ItemLabelDistance", () -> testItemLabelDistance());
+			run("takeScreenshots", () -> takeScreenshots(context, server, connection));
+			run("takeBusynessScreenshot", () -> takeBusynessScreenshot(context, server, connection));
+			run("ToggleKey", () -> testToggleKey(context));
+			run("FreeLook", () -> testFreeLook(context, server, connection));
 		}
 
 		context.waitFor(client -> !FreeLook.isActive(), TIMEOUT_TICKS);
 
 		context.waitFor(client -> JuiceClient.TRACKER.chunkCount() == 0, TIMEOUT_TICKS);
+		checkFilterUsed();
 	}
 
 	private static void logLightEmittingBlocks() {
@@ -575,6 +627,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		allOff.antiDrop = false;
 		allOff.sortButtons = false;
 		allOff.trajectories = false;
+		allOff.autoClutch = false;
 		allOff.stackBossBars = false;
 		allOff.armorStatus = false;
 		allOff.autoWeapon = false;
@@ -778,6 +831,159 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			JuiceClient.CONFIG.resetRules();
 			JuiceClient.applyRuleChanges();
 		});
+	}
+
+	/** Drops the player from a height onto a stone pad, and returns the health left after landing, on the server. */
+	private static float fall(ClientGameTestContext context, TestServerContext server, int x, int height) {
+		server.runCommand("fill " + (x - 2) + " 99 38 " + (x + 2) + " 99 42 minecraft:stone");
+		server.runCommand("fill " + (x - 2) + " 100 38 " + (x + 2) + " " + (101 + height) + " 42 minecraft:air");
+		server.runOnServer(minecraftServer -> {
+			ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+			player.setHealth(20F);
+			player.getFoodData().setFoodLevel(20);
+		});
+		server.runCommand("tp @a " + x + ".5 " + (100 + height) + " 40.5 0 0");
+		context.waitTicks(3);
+		context.waitFor(client -> client.player.onGround() || client.player.isInWater() || client.player.isDeadOrDying(), TIMEOUT_TICKS);
+		context.waitTicks(10);
+		return server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getHealth());
+	}
+
+	private static boolean blockIs(TestServerContext server, BlockPos pos, Block block) {
+		return server.computeOnServer(minecraftServer -> minecraftServer.overworld().getBlockState(pos).is(block));
+	}
+
+	private static void testAutoClutch(ClientGameTestContext context, TestServerContext server) {
+		check(context.computeOnClient(client -> JuiceClient.CONFIG.autoClutch && JuiceClient.CONFIG.autoClutchHeight == 10), "Auto clutch should start on, at 10 blocks");
+		server.runCommand("gamemode survival @a");
+		server.runCommand("clear @a");
+		server.runCommand("effect clear @a");
+		server.runCommand("item replace entity @a hotbar.0 with minecraft:iron_sword");
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:water_bucket");
+		context.runOnClient(client -> client.player.getInventory().setSelectedSlot(0));
+		context.waitTicks(5);
+
+		// Water from the hotbar, with the sword in hand before and after.
+		float health = fall(context, server, 40, 30);
+		check(health == 20F, "Water should have broken a 30 block fall, but health is " + health);
+		check(blockIs(server, new BlockPos(40, 100, 40), Blocks.WATER), "The water should be where the player landed");
+		check(context.computeOnClient(client -> client.player.getInventory().getSelectedSlot() == 0 && client.player.getInventory().getItem(3).is(Items.BUCKET)),
+				"The sword should be back in hand, with the bucket emptied");
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getInventory().getSelectedSlot()) == 0,
+				"The server should be back on the sword");
+
+		// A high fall, moving a few blocks a tick by the end, still gets the water down in time.
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:water_bucket");
+		health = fall(context, server, 100, 60);
+		check(health == 20F, "Water should have broken a 60 block fall, but health is " + health);
+
+		// A cobweb in the offhand.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:cobweb 4");
+		health = fall(context, server, 50, 25);
+		check(health == 20F, "A cobweb should have broken a 25 block fall, but health is " + health);
+		check(blockIs(server, new BlockPos(50, 100, 40), Blocks.COBWEB), "The cobweb should be where the player landed");
+		server.runCommand("setblock 50 100 40 minecraft:air");
+
+		// A hay bale only softens the fall, and water comes before it.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:air");
+		server.runCommand("item replace entity @a hotbar.5 with minecraft:hay_block 2");
+		health = fall(context, server, 80, 20);
+		check(health >= 15F && health < 20F, "A hay bale should have softened a 20 block fall, but health is " + health);
+		check(blockIs(server, new BlockPos(80, 100, 40), Blocks.HAY_BLOCK), "The hay bale should be where the player landed");
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:water_bucket");
+		health = fall(context, server, 90, 20);
+		check(health == 20F && blockIs(server, new BlockPos(90, 100, 40), Blocks.WATER), "Water should come before hay: " + health);
+		server.runCommand("item replace entity @a hotbar.5 with minecraft:air");
+
+		// A fall shorter than the setting is left alone.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:air");
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:water_bucket");
+		health = fall(context, server, 60, 8);
+		check(health < 20F && !blockIs(server, new BlockPos(60, 100, 40), Blocks.WATER), "A fall under 10 blocks shouldn't be clutched: " + health);
+
+		// Unless it could kill: on 2 hearts, the same 8 block fall, doing 5 damage, is clutched.
+		server.runCommand("setblock 60 100 40 minecraft:air");
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:water_bucket");
+		server.runCommand("fill 58 99 38 62 99 42 minecraft:stone");
+		server.runCommand("fill 58 100 38 62 110 42 minecraft:air");
+		server.runOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().setHealth(4F));
+		server.runCommand("tp @a 60.5 108 40.5 0 0");
+		context.waitTicks(3);
+		context.waitFor(client -> client.player.onGround() || client.player.isInWater() || client.player.isDeadOrDying(), TIMEOUT_TICKS);
+		context.waitTicks(10);
+		float lowHealth = server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().getHealth());
+		check(lowHealth >= 4F && blockIs(server, new BlockPos(60, 100, 40), Blocks.WATER), "An 8 block fall on 2 hearts should be clutched: " + lowHealth);
+		server.runCommand("item replace entity @a hotbar.3 with minecraft:water_bucket");
+
+		// Turned off, nothing is placed.
+		context.runOnClient(client -> JuiceClient.CONFIG.autoClutch = false);
+		health = fall(context, server, 70, 14);
+		check(health < 20F && !blockIs(server, new BlockPos(70, 100, 40), Blocks.WATER), "Auto clutch shouldn't act while off: " + health);
+
+		context.runOnClient(client -> JuiceClient.CONFIG.autoClutch = true);
+
+		// A fall that could kill puts a totem in early, long before landing, without the usual wait. One that can't
+		// leaves the offhand alone.
+		check(context.computeOnClient(client -> JuiceClient.CONFIG.autoTotemFalls), "Totems for deadly falls should start on");
+		server.runCommand("clear @a");
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:torch");
+		server.runCommand("item replace entity @a inventory.9 with minecraft:totem_of_undying");
+		context.runOnClient(client -> JuiceClient.CONFIG.autoTotemDelay = 400);
+		context.waitTicks(5);
+		health = fall(context, server, 110, 8);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.TORCH)), "A fall that can't kill shouldn't bring a totem in");
+		server.runCommand("fill 108 99 38 112 99 42 minecraft:stone");
+		server.runCommand("fill 108 100 38 112 160 42 minecraft:air");
+		server.runOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().setHealth(20F));
+		server.runCommand("tp @a 110.5 150 40.5 0 0");
+		context.waitTicks(3);
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) || client.player.onGround(), TIMEOUT_TICKS);
+		double totemAt = context.computeOnClient(client -> client.player.getY());
+		check(totemAt > 130, "The totem should go in early in a 50 block fall, not at y " + totemAt);
+		context.waitFor(client -> client.player.onGround(), TIMEOUT_TICKS);
+		context.waitTicks(10);
+		check(server.computeOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().isAlive()), "The totem should have saved the player");
+		server.runCommand("effect clear @a");
+
+		// Water breaks the fall, so a long one into water doesn't need the totem.
+		server.runCommand("item replace entity @a weapon.offhand with minecraft:torch");
+		server.runCommand("item replace entity @a inventory.9 with minecraft:totem_of_undying");
+		server.runCommand("fill 118 98 38 122 98 42 minecraft:stone");
+		server.runCommand("fill 118 99 38 122 100 42 minecraft:water");
+		server.runCommand("fill 118 101 38 122 160 42 minecraft:air");
+		server.runOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().setHealth(20F));
+		server.runCommand("tp @a 120.5 150 40.5 0 0");
+		context.waitTicks(3);
+		context.waitFor(client -> client.player.isInWater() || client.player.onGround(), TIMEOUT_TICKS);
+		context.waitTicks(5);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.TORCH)), "A fall into water shouldn't bring a totem in");
+
+		// Lava can kill from any height, so even a short fall into it does.
+		server.runCommand("fill 128 98 38 132 98 42 minecraft:stone");
+		server.runCommand("fill 128 99 38 132 99 42 minecraft:lava");
+		server.runCommand("fill 128 100 38 132 110 42 minecraft:air");
+		server.runCommand("tp @a 130.5 106 40.5 0 0");
+		context.waitTicks(3);
+		context.waitFor(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) || client.player.isInLava() || client.player.onGround(), TIMEOUT_TICKS);
+		check(context.computeOnClient(client -> client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && !client.player.isInLava()),
+				"A fall into lava should bring a totem in before reaching it");
+		server.runCommand("tp @a 120.5 101 40.5 0 0");
+		server.runCommand("effect give @a minecraft:fire_resistance 5");
+		server.runCommand("fill 128 98 38 132 110 42 minecraft:air");
+		server.runCommand("fill 118 98 38 122 101 42 minecraft:air");
+		context.waitTicks(10);
+		context.runOnClient(client -> JuiceClient.CONFIG.autoTotemDelay = 5);
+		server.runCommand("effect clear @a");
+		server.runCommand("fill 108 99 38 112 101 42 minecraft:air");
+
+		server.runOnServer(minecraftServer -> minecraftServer.getPlayerList().getPlayers().getFirst().setHealth(20F));
+		for (int x : new int[] {40, 50, 60, 70, 80, 90, 100}) {
+			server.runCommand("fill " + (x - 2) + " 99 38 " + (x + 2) + " 101 42 minecraft:air");
+		}
+		server.runCommand("clear @a");
+		server.runCommand("gamemode spectator @a");
+		server.runCommand("tp @a 8.5 100 8.5 -90 0");
+		context.waitTicks(5);
 	}
 
 	private static void testTrajectory(ClientGameTestContext context, TestServerContext server) {
@@ -1077,6 +1283,16 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter(""));
 		context.waitTicks(2);
 		check(context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows()) == allRows, "Clearing the search should show everything again");
+
+		// The index jumps to a section, clearing any search: its title ends up at the top of the list.
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).applyFilter("anti drop"));
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).jumpTo("options.juiceclient.section.tools"));
+		context.waitTicks(2);
+		context.takeScreenshot("juiceclient_settings_index");
+		check(context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).shownRows()) == allRows, "Jumping should clear the search");
+		int toolsOffset = context.computeOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).sectionOffset("options.juiceclient.section.tools"));
+		check(toolsOffset >= -2 && toolsOffset <= 12, "Tools should be at the top of the list after jumping to it: " + toolsOffset);
+		context.runOnClient(client -> ((JuiceClientConfigScreen) client.gui.screen()).jumpTo("options.juiceclient.section.bases"));
 		context.setScreen(() -> null);
 
 		// The light sources rule leads to the excluded blocks, and can't be deleted.
@@ -3048,7 +3264,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		context.takeScreenshot("juiceclient_settings");
 
 		// clickScreenButton can't reach widgets nested in an options list, so click the Enabled button directly.
-		context.getInput().setCursorPos(265, 93);
+		context.getInput().setCursorPos(265, 171);
 		context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 		context.waitFor(client -> !JuiceClient.CONFIG.enabled, TIMEOUT_TICKS);
 
@@ -3225,6 +3441,9 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 			reloaded.takeAllDelay = 4;
 			reloaded.sortButtons = false;
 			reloaded.trajectories = false;
+			reloaded.autoClutch = false;
+			reloaded.autoClutchHeight = 25;
+			reloaded.autoTotemFalls = false;
 			reloaded.trajectoryColor = "FF00FF00";
 			reloaded.stackBossBars = false;
 			reloaded.armorStatus = false;
@@ -3273,6 +3492,7 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 					&& withRules.sortPriority(Items.DIAMOND) == SortPriority.FRONT && withRules.sortPriority(Items.DIRT) == SortPriority.BACK
 					&& withRules.sortPriority(Items.STONE) == SortPriority.NORMAL && withRules.sortGroupOrder().getFirst() == ItemGroup.MOB_DROPS
 					&& withRules.sortGroupOrder().size() == ItemGroup.values().length, "Sort settings lost on reload");
+			check(!withRules.autoClutch && withRules.autoClutchHeight == 25 && !withRules.autoTotemFalls, "Auto clutch or totem fall settings lost on reload");
 			check(!withRules.trajectories && withRules.trajectoryArgb() == 0xFF00FF00 && !withRules.stackBossBars && !withRules.armorStatus, "Trajectory, boss bar or armor settings lost on reload");
 			check(!withRules.takeAll && withRules.takeAllDelay == 4 && withRules.putAllHotbar
 					&& !withRules.playerAlerts
@@ -3429,8 +3649,9 @@ public class JuiceClientGameTest implements FabricClientGameTest {
 		config.autoWeapon = false;
 		config.sortButtons = false;
 		config.trajectories = false;
+		config.autoClutch = false;
 		check(SectionToggle.TOOLS.toggle(config) && config.smartTool && config.autoEat && config.takeAll && config.autoArmor && config.autoWeapon && config.sortButtons
-				&& config.trajectories && config.autoDrop && config.antiDrop, "Tools should all turn on");
+				&& config.trajectories && config.autoDrop && config.antiDrop && config.autoClutch, "Tools should all turn on");
 		SectionToggle.forgetAll();
 	}
 

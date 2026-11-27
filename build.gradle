@@ -64,6 +64,13 @@ jar {
 		rename { "${it}_$projectName" }
 	}
 }
+// Runs only some client game test groups, those whose names hold any of the given words:
+// gradlew runClientGameTest -Ptests=autoEat,modMenu
+if (project.hasProperty("tests")) {
+	tasks.named("runClientGameTest") {
+		jvmArgs "-Djuiceclient.tests=${project.property('tests')}"
+	}
+}
 // Runs the client game tests with extra mods, such as Sodium, from the given jar paths:
 // gradlew runClientGameTest -PextraMods=path/to/sodium.jar
 if (project.hasProperty("extraMods")) {

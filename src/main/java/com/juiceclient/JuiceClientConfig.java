@@ -40,6 +40,8 @@ public final class JuiceClientConfig {
 	public static final int MAX_TAKE_ALL_DELAY = 10;
 	public static final int MAX_AUTO_TOTEM_DELAY = 100;
 	public static final int MAX_AUTO_TOTEM_HEALTH = 10;
+	public static final int MIN_AUTO_CLUTCH_HEIGHT = 4;
+	public static final int MAX_AUTO_CLUTCH_HEIGHT = 64;
 	public static final int MAX_AUTO_WEAPON_RETURN = 200;
 	public static final int MAX_SORT_DELAY = 10;
 	public static final int MIN_NAME_TAG_RANGE = 8;
@@ -142,6 +144,9 @@ public final class JuiceClientConfig {
 	public boolean smartTool = true;
 	/** Shows where a held throwable, a drawn bow or a loaded crossbow would land. */
 	public boolean trajectories = true;
+	/** A water bucket or cobweb in the hotbar is placed to break a fall longer than {@link #autoClutchHeight}. */
+	public boolean autoClutch = true;
+	public int autoClutchHeight = 10;
 	public String trajectoryColor = "FFFFFFFF";
 	/** Boss bars with the same name are shown as one, with a count. */
 	public boolean stackBossBars = true;
@@ -154,6 +159,8 @@ public final class JuiceClientConfig {
 	public boolean autoEatResupply = true;
 	public QuickUseAction quickUseAction = QuickUseAction.ENDER_PEARL;
 	public boolean autoTotem = true;
+	/** A fall that could kill also puts a totem in straight away, as low health does. */
+	public boolean autoTotemFalls = true;
 	public boolean autoArmor = true;
 	/** Items on the Auto Drop list are thrown out as soon as they're in the inventory. */
 	public boolean autoDrop = true;
@@ -313,6 +320,8 @@ public final class JuiceClientConfig {
 		config.xrayEnabled = Boolean.parseBoolean(properties.getProperty("xrayEnabled", String.valueOf(config.xrayEnabled)));
 		config.smartTool = Boolean.parseBoolean(properties.getProperty("smartTool", String.valueOf(config.smartTool)));
 		config.trajectories = Boolean.parseBoolean(properties.getProperty("trajectories", String.valueOf(config.trajectories)));
+		config.autoClutch = Boolean.parseBoolean(properties.getProperty("autoClutch", String.valueOf(config.autoClutch)));
+		config.autoClutchHeight = Mth.clamp(readInt(properties, "autoClutchHeight", config.autoClutchHeight), MIN_AUTO_CLUTCH_HEIGHT, MAX_AUTO_CLUTCH_HEIGHT);
 		config.trajectoryColor = properties.getProperty("trajectoryColor", config.trajectoryColor);
 		config.stackBossBars = Boolean.parseBoolean(properties.getProperty("stackBossBars", String.valueOf(config.stackBossBars)));
 		config.armorStatus = Boolean.parseBoolean(properties.getProperty("armorStatus", String.valueOf(config.armorStatus)));
@@ -320,6 +329,7 @@ public final class JuiceClientConfig {
 		config.autoEat = Boolean.parseBoolean(properties.getProperty("autoEat", String.valueOf(config.autoEat)));
 		config.takeAll = Boolean.parseBoolean(properties.getProperty("takeAll", String.valueOf(config.takeAll)));
 		config.autoTotem = Boolean.parseBoolean(properties.getProperty("autoTotem", String.valueOf(config.autoTotem)));
+		config.autoTotemFalls = Boolean.parseBoolean(properties.getProperty("autoTotemFalls", String.valueOf(config.autoTotemFalls)));
 		config.autoArmor = Boolean.parseBoolean(properties.getProperty("autoArmor", String.valueOf(config.autoArmor)));
 		config.autoDrop = Boolean.parseBoolean(properties.getProperty("autoDrop", String.valueOf(config.autoDrop)));
 		config.antiDrop = Boolean.parseBoolean(properties.getProperty("antiDrop", String.valueOf(config.antiDrop)));
@@ -584,6 +594,8 @@ public final class JuiceClientConfig {
 		properties.setProperty("xrayEnabled", String.valueOf(this.xrayEnabled));
 		properties.setProperty("smartTool", String.valueOf(this.smartTool));
 		properties.setProperty("trajectories", String.valueOf(this.trajectories));
+		properties.setProperty("autoClutch", String.valueOf(this.autoClutch));
+		properties.setProperty("autoClutchHeight", String.valueOf(this.autoClutchHeight));
 		properties.setProperty("trajectoryColor", this.trajectoryColor);
 		properties.setProperty("stackBossBars", String.valueOf(this.stackBossBars));
 		properties.setProperty("armorStatus", String.valueOf(this.armorStatus));
@@ -592,6 +604,7 @@ public final class JuiceClientConfig {
 		properties.setProperty("quickUseAction", this.quickUseAction.name());
 		properties.setProperty("takeAll", String.valueOf(this.takeAll));
 		properties.setProperty("autoTotem", String.valueOf(this.autoTotem));
+		properties.setProperty("autoTotemFalls", String.valueOf(this.autoTotemFalls));
 		properties.setProperty("autoEatResupply", String.valueOf(this.autoEatResupply));
 		properties.setProperty("autoArmor", String.valueOf(this.autoArmor));
 		properties.setProperty("autoDrop", String.valueOf(this.autoDrop));

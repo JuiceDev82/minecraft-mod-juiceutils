@@ -43,6 +43,14 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 	private static final int INVALID_COLOR = 0xFFFF5555;
 	private static final Component SEARCH_HINT = Component.translatable("options.juiceclient.searchSettings").withStyle(EditBox.SEARCH_HINT_STYLE);
 	private static final int SEARCH_BOX_HEIGHT = 15;
+	/** The sections, in order, for the index of buttons that jump to them. */
+	private static final List<String> SECTIONS = List.of("bases", "tracers", "labels", "mobs", "items", "players", "xray", "nameTags", "tools",
+			"appearance", "freeLook").stream().map(id -> "options.juiceclient.section." + id).toList();
+	private static final int INDEX_BUTTON_HEIGHT = 14;
+	private static final int INDEX_BUTTON_PADDING = 10;
+	private static final int INDEX_SPACING = 2;
+	private static final int INDEX_MARGIN = 10;
+	private final java.util.Map<String, ContainerObjectSelectionList.Entry<?>> sectionByKey = new java.util.HashMap<>();
 
 	private EditBox search;
 	/** Kept across resizes, which build the screen again. */
@@ -64,7 +72,60 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 		this.search = header.addChild(new EditBox(this.font, 0, 0, 200, SEARCH_BOX_HEIGHT, Component.empty()));
 		this.search.setHint(SEARCH_HINT);
 		this.search.setValue(this.filter);
-		this.layout.setHeaderHeight(12 + 9 + SEARCH_BOX_HEIGHT);
+		int indexRows = this.addIndex(header);
+		this.layout.setHeaderHeight(12 + 9 + SEARCH_BOX_HEIGHT + indexRows * (INDEX_BUTTON_HEIGHT + 4));
+	}
+
+	/** A button per section that jumps to it, in as many rows as the screen's width needs. Returns how many rows. */
+	private int addIndex(LinearLayout header) {
+		int maxWidth = Math.max(100, this.width - 2 * INDEX_MARGIN);
+		LinearLayout row = null;
+		int rowWidth = 0;
+		int rows = 0;
+
+		for (String key : SECTIONS) {
+			Component name = Component.translatable(key.equals("options.juiceclient.section.bases") ? key + ".short" : key);
+			int width = this.font.width(name) + INDEX_BUTTON_PADDING;
+
+			if (row == null || rowWidth + INDEX_SPACING + width > maxWidth) {
+				row = header.addChild(LinearLayout.horizontal().spacing(INDEX_SPACING));
+				rowWidth = -INDEX_SPACING;
+				rows++;
+			}
+
+			row.addChild(Button.builder(name, button -> this.jumpTo(key)).size(width, INDEX_BUTTON_HEIGHT).build());
+			rowWidth += INDEX_SPACING + width;
+		}
+
+		return rows;
+	}
+
+	/** Clears the search and scrolls the section's title to the top of the list. */
+	public void jumpTo(String sectionKey) {
+		this.search.setValue("");
+		this.applyFilter("");
+		ContainerObjectSelectionList.Entry<?> target = this.sectionByKey.get(sectionKey);
+
+		if (target == null) {
+			return;
+		}
+
+		int offset = 0;
+
+		for (ContainerObjectSelectionList.Entry<?> entry : this.list.children()) {
+			if (entry == target) {
+				break;
+			}
+
+			offset += entry.getHeight();
+		}
+
+		this.list.setScrollAmount(offset);
+	}
+
+	/** How far the section's title is below the top of the list, as drawn, for tests. */
+	public int sectionOffset(String sectionKey) {
+		return this.sectionByKey.get(sectionKey).getY() - this.list.getY();
 	}
 
 	@Override
@@ -72,6 +133,7 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 		this.allEntries.clear();
 		this.sectionHeaders.clear();
 		this.subsectionHeaders.clear();
+		this.sectionByKey.clear();
 		super.addContents();
 		this.allEntries.addAll(this.list.children());
 		this.search.setResponder(this::applyFilter);
@@ -397,6 +459,9 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 				config.autoTotemHealth,
 				value -> config.autoTotemHealth = value
 		));
+		this.list.addBig(OptionInstance.createBoolean("options.juiceclient.autoTotemFalls",
+				OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.autoTotemFalls.tooltip")), config.autoTotemFalls,
+				value -> config.autoTotemFalls = value));
 		// The Quick Use key itself is set in Controls, with the others.
 		this.list.addSmall(
 				OptionInstance.createBoolean(
@@ -493,6 +558,23 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 				OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.trajectories.tooltip")), config.trajectories,
 				value -> config.trajectories = value));
 		addColorField(this.list, this.font, "options.juiceclient.trajectoryColor", config.trajectoryColor, value -> config.trajectoryColor = value);
+		this.addSubsection("options.juiceclient.subsection.automation");
+		this.list.addSmall(
+				OptionInstance.createBoolean(
+						"options.juiceclient.autoClutch",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.autoClutch.tooltip")),
+						config.autoClutch,
+						value -> config.autoClutch = value
+				).createButton(this.minecraft.options),
+				new OptionInstance<>(
+						"options.juiceclient.autoClutchHeight",
+						OptionInstance.cachedConstantTooltip(Component.translatable("options.juiceclient.autoClutchHeight.tooltip")),
+						(caption, value) -> Options.genericValueLabel(caption, Component.translatable("options.juiceclient.blocks", value)),
+						new OptionInstance.IntRange(JuiceClientConfig.MIN_AUTO_CLUTCH_HEIGHT, JuiceClientConfig.MAX_AUTO_CLUTCH_HEIGHT, true),
+						Mth.clamp(config.autoClutchHeight, JuiceClientConfig.MIN_AUTO_CLUTCH_HEIGHT, JuiceClientConfig.MAX_AUTO_CLUTCH_HEIGHT),
+						value -> config.autoClutchHeight = value
+				).createButton(this.minecraft.options)
+		);
 
 		this.addSection("options.juiceclient.section.appearance");
 		this.list.addBig(new OptionInstance<>(
@@ -539,6 +621,7 @@ public class JuiceClientConfigScreen extends OptionsSubScreen {
 
 		this.list.addHeader(header);
 		this.sectionHeaders.add(this.list.children().getLast());
+		this.sectionByKey.put(key, this.list.children().getLast());
 	}
 
 	/** The key that toggles a section, from the section's title key, or null for a section with none. */

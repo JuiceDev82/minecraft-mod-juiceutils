@@ -132,6 +132,7 @@ public final class ModuleSplash {
 		addIf(tools, config.autoWeapon, Component.translatable("options.juiceclient.autoWeapon"));
 		addIf(tools, config.sortButtons, Component.translatable("options.juiceclient.sort.button"));
 		addIf(tools, config.trajectories, Component.translatable("options.juiceclient.trajectories"));
+		addIf(tools, config.autoClutch, Component.translatable("options.juiceclient.autoClutch"));
 		addGroup(groups, "tools", tools, ChatFormatting.GREEN);
 
 		return groups;

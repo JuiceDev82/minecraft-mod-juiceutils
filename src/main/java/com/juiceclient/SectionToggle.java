@@ -38,7 +38,8 @@ public enum SectionToggle {
 			flag(config -> config.autoWeapon, (config, value) -> config.autoWeapon = value),
 			flag(config -> config.takeAll, (config, value) -> config.takeAll = value),
 			flag(config -> config.sortButtons, (config, value) -> config.sortButtons = value),
-			flag(config -> config.trajectories, (config, value) -> config.trajectories = value));
+			flag(config -> config.trajectories, (config, value) -> config.trajectories = value),
+			flag(config -> config.autoClutch, (config, value) -> config.autoClutch = value));
 
 	private record Flag(Predicate<JuiceClientConfig> get, BiConsumer<JuiceClientConfig, Boolean> set) {
 	}

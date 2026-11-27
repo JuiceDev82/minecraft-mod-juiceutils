@@ -180,6 +180,7 @@ public class JuiceClient implements ClientModInitializer {
 			AutoArmor.tick(client);
 			AutoDrop.tick(client);
 			AutoWeapon.tick(client);
+			AutoClutch.tick(client);
 			NAME_TAGS.tick(client);
 
 			while (quickUseKey.consumeClick()) {

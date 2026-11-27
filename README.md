@@ -24,6 +24,7 @@ Because the mod is client-only, it works on any server. The server doesn't need 
 - **X-Ray:** shows only the blocks you choose.
 - **Free Look:** moves the camera around without turning your character.
 - **Trajectories:** shows the path of what you're about to throw or shoot, with an X where it lands: ender pearls,
+- **Auto Clutch** breaks a long fall, over 10 blocks by default: with a water bucket, cobweb or hay bale in your hand or anywhere in your hotbar, chosen in that order, it's placed on the block you're about to land on, then you're back on the slot you had. A shorter fall is broken too when it could kill you. A hay bale only softens the fall.
   snowballs, eggs, splash and lingering potions, bottles o' enchanting, wind charges, a bow being drawn, a loaded crossbow
   and a trident being readied. A mob or player it would hit is outlined.
 - **Stack Boss Bars:** boss bars with the same name show as one, such as "Wither x3", instead of filling the screen.
@@ -38,6 +39,7 @@ Because the mod is client-only, it works on any server. The server doesn't need 
   offhand stays until you take it out, unless your health drops below a level you choose. Then the shield goes back
   once your health and hunger are full again, at least 15 seconds have passed and you're standing still. If the server
   undoes either swap, it's done again.
+  A fall that could kill you, or one into lava from any height, also puts a totem in straight away, long before you land.
 - **Auto Armor:** wears the best armor in your inventory, counting protection enchantments, one piece every half second.
   While an elytra is on, no chestplate goes on. Anything with Curse of Binding is never put on.
 - **Auto Drop:** drops the items you choose, such as junk picked up while mining, once you've stood still for half a

@@ -128,7 +128,9 @@ public final class AutoTotem {
 			return;
 		}
 
-		boolean lowHealth = isLowHealth(player, config);
+		// A fall that could kill counts as low health: the totem goes in straight away, long before the landing.
+		boolean deadlyFall = config.autoTotemFalls && client.level != null && isDeadlyFall(player, client.level);
+		boolean lowHealth = isLowHealth(player, config) || deadlyFall;
 
 		// A shield the player put in the offhand stays until they take it out, or it breaks. Then the wait starts.
 		// Unless health is low: then the totem matters more.
@@ -164,6 +166,11 @@ public final class AutoTotem {
 		ItemStack replaced = player.getOffhandItem().copy();
 		client.gameMode.handleContainerInput(player.inventoryMenu.containerId, menuSlot(slot), OFFHAND_BUTTON, ContainerInput.SWAP, player);
 		InventoryClicks.finish(client, player);
+
+		if (deadlyFall) {
+			JuiceClient.LOGGER.info("Auto Totem: a fall {} with {} health, swapped in a totem", AutoClutch.fallsIntoLava(player, client.level) ? "into lava"
+					: "that could do " + AutoClutch.fallDamage(player, client.level) + " damage", player.getHealth() + player.getAbsorptionAmount());
+		}
 
 		if (undone) {
 			undoneCount++;
@@ -272,6 +279,14 @@ public final class AutoTotem {
 	/** Whether health is at or below the chosen number of hearts, when that's on. */
 	public static boolean isLowHealth(LocalPlayer player, JuiceClientConfig config) {
 		return config.autoTotemHealth > 0 && player.getHealth() <= config.autoTotemHealth * 2F;
+	}
+
+	/**
+	 * Whether the fall under way could do as much damage as the health left, absorption included, or ends in lava.
+	 * Water breaks a fall, so one into water isn't.
+	 */
+	public static boolean isDeadlyFall(LocalPlayer player, net.minecraft.client.multiplayer.ClientLevel level) {
+		return AutoClutch.fallsIntoLava(player, level) || AutoClutch.fallDamage(player, level) >= player.getHealth() + player.getAbsorptionAmount();
 	}
 
 	/** Shields, including modded ones that use the common shield tag. */
